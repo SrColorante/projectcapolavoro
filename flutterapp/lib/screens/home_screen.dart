@@ -526,7 +526,7 @@ class _NewChatPanel extends StatelessWidget {
           TextField(
             controller: idController,
             keyboardType: TextInputType.number,
-            inputFormatters: const [
+            inputFormatters: [
               FilteringTextInputFormatter.digitsOnly,
               LengthLimitingTextInputFormatter(10),
             ],
