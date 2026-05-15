@@ -13,6 +13,11 @@ if ($method === 'GET') {
         echo json_encode(["error" => "Specificare chat_id"]);
         exit;
     }
+    if (!is_ten_digit_id(strval($chat_id))) {
+        http_response_code(400);
+        echo json_encode(["error" => "chat_id deve essere numerico e di 10 cifre"]);
+        exit;
+    }
 
     // Recupera i messaggi (usando sender e receiver)
     // NB: Nel tuo schema, 'messaggi' non ha un collegamento diretto a 'IDchat', 
@@ -37,6 +42,11 @@ if ($method === 'GET') {
     if (!$text || !$receiver_id) {
         http_response_code(400);
         echo json_encode(["error" => "Specificare textmessage e reciverID"]);
+        exit;
+    }
+    if (!is_ten_digit_id(strval($receiver_id))) {
+        http_response_code(400);
+        echo json_encode(["error" => "reciverID deve essere numerico e di 10 cifre"]);
         exit;
     }
 
