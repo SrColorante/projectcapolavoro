@@ -141,9 +141,9 @@ class _AuthScreenState extends State<AuthScreen> {
                     const SizedBox(height: 10),
                     Semantics(
                       label:
-                          'Informazione: le chiamate API sono placeholder verso un web service.',
+                          'Informazione: le chiamate API sono collegate al web service.',
                       child: const Text(
-                        'Le chiamate API sono placeholder verso un web service.',
+                        'Le chiamate API sono collegate al web service.',
                         textAlign: TextAlign.center,
                       ),
                     ),
