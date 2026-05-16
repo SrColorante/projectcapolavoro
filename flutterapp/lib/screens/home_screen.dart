@@ -236,6 +236,7 @@ class _HomeScreenState extends State<HomeScreen> {
         userId: widget.profile.id,
         receiverId: chat.participantId,
         text: text,
+        chatId: chat.id,
       );
       final updatedMessages = List<ChatMessage>.from(chat.messages)
         ..add(ChatMessage(text: text, senderId: widget.profile.id));
