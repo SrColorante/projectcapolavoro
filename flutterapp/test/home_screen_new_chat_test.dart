@@ -1,8 +1,44 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:flutterapp/api/chat_api.dart';
+import 'package:flutterapp/models/chat_thread.dart';
 import 'package:flutterapp/models/user_profile.dart';
 import 'package:flutterapp/screens/home_screen.dart';
+
+class FakeChatApi extends ChatApi {
+  FakeChatApi();
+
+  final List<ChatThread> _chats = <ChatThread>[];
+
+  @override
+  Future<List<ChatThread>> fetchChats({required String userId}) async {
+    return _chats;
+  }
+
+  @override
+  Future<List<ChatMessage>> fetchMessages({
+    required String userId,
+    required String chatId,
+  }) async {
+    return _chats.firstWhere((chat) => chat.id == chatId).messages;
+  }
+
+  @override
+  Future<String> createChat({
+    required String userId,
+    required String targetUserId,
+  }) async {
+    final chat = ChatThread(
+      id: '2345678901',
+      title: 'Alice',
+      participantId: targetUserId,
+      messages: <ChatMessage>[],
+    );
+    _chats.insert(0, chat);
+    return chat.id;
+  }
+}
 
 void main() {
   testWidgets('opens new chat pane and creates a chat with valid 10-digit ID', (
@@ -16,6 +52,7 @@ void main() {
             name: 'Tester',
             email: 'tester@example.com',
           ),
+          chatApi: FakeChatApi(),
         ),
       ),
     );
@@ -31,7 +68,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Alice'), findsWidgets);
-    expect(find.text('Benvenuto! Questa è la tua nuova chat.'), findsOneWidget);
+    expect(find.text('inizia la chat ora :)'), findsOneWidget);
   });
 
   testWidgets('shows validation error for invalid new chat user ID', (
@@ -45,6 +82,7 @@ void main() {
             name: 'Tester',
             email: 'tester@example.com',
           ),
+          chatApi: FakeChatApi(),
         ),
       ),
     );
