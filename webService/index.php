@@ -34,6 +34,9 @@ switch ($resource) {
     case 'settings':
         require 'resources/settings.php';
         break;
+    case 'auth':
+        require 'resources/auth.php';
+        break;
     default:
         http_response_code(404);
         echo json_encode(["error" => "Risorsa non trovata. Endpoint validi: /chats, /chat, /settings"]);
