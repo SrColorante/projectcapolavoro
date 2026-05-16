@@ -1,4 +1,8 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 
 import 'package:flutterapp/api/auth_api.dart';
 import 'package:flutterapp/models/chat_thread.dart';
@@ -6,6 +10,35 @@ import 'package:flutterapp/models/user_profile.dart';
 
 void main() {
   group('10-digit IDs', () {
+    setUp(() {
+      AuthApi.configure(
+        baseUrl: 'https://example.test',
+        client: MockClient((request) async {
+          final payload = jsonDecode(request.body) as Map<String, dynamic>;
+          final action = payload['action'];
+          final name = payload['name']?.toString() ?? 'Utente';
+          final email = payload['email']?.toString() ?? 'utente@test.com';
+          final body = jsonEncode({
+            'success': true,
+            'data': {
+              'id': '1234567890',
+              'name': name,
+              'nickname': name,
+              'email': email,
+            },
+          });
+          if (action != 'login' && action != 'register') {
+            return http.Response('{"success":false}', 400);
+          }
+          return http.Response(body, 200);
+        }),
+      );
+    });
+
+    tearDown(() {
+      AuthApi.reset();
+    });
+
     test('validates user IDs correctly', () {
       expect(UserProfile.isValidTenDigitId('1234567890'), isTrue);
       expect(UserProfile.isValidTenDigitId('12345'), isFalse);

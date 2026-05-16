@@ -1,15 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../api/chat_api.dart';
 import '../models/chat_thread.dart';
 import '../models/user_profile.dart';
 
 enum _RightPaneView { settings, chat, newChat }
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key, required this.profile});
+  const HomeScreen({super.key, required this.profile, this.chatApi});
 
   final UserProfile profile;
+  final ChatApi? chatApi;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -31,49 +33,33 @@ class _HomeScreenState extends State<HomeScreen> {
     Color(0xFFF3E5F5),
   ];
 
-  late final List<ChatThread> chats;
+  List<ChatThread> chats = <ChatThread>[];
   ChatThread? selectedChat;
   _RightPaneView _rightPaneView = _RightPaneView.settings;
 
+  late final ChatApi _chatApi;
   late final TextEditingController _nicknameController;
   late final TextEditingController _newChatNameController;
   late final TextEditingController _newChatIdController;
+  late final TextEditingController _messageController;
 
   Color _appThemeColor = const Color(0xFFDC143C);
   Color _newChatBackgroundColor = const Color(0xFFFFEEF1);
   Color _newChatBubbleColor = const Color(0xFFDC143C);
+  bool _isLoadingChats = false;
+  bool _isLoadingMessages = false;
+  bool _isSendingMessage = false;
+  bool _isCreatingChat = false;
 
   @override
   void initState() {
     super.initState();
-    chats = <ChatThread>[
-      ChatThread(
-        id: ChatThread.generateTenDigitId(),
-        title: 'Team Crimson',
-        participantId: '1234567891',
-        backgroundColorValue: const Color(0xFFFFEEF1).value,
-        bubbleColorValue: const Color(0xFFDC143C).value,
-        messages: <ChatMessage>[
-          const ChatMessage(
-            text: 'Benvenuto in Crimson Chat!',
-            senderId: '1234567891',
-          ),
-          ChatMessage(
-            text: 'Grazie! Ho appena fatto login.',
-            senderId: widget.profile.id,
-          ),
-        ],
-      ),
-      ChatThread(
-        id: ChatThread.generateTenDigitId(),
-        title: 'Supporto',
-        participantId: '1234567892',
-        messages: const <ChatMessage>[],
-      ),
-    ];
+    _chatApi = widget.chatApi ?? ChatApi();
     _nicknameController = TextEditingController(text: widget.profile.nickname);
     _newChatNameController = TextEditingController();
     _newChatIdController = TextEditingController();
+    _messageController = TextEditingController();
+    _loadChats();
   }
 
   @override
@@ -81,6 +67,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _nicknameController.dispose();
     _newChatNameController.dispose();
     _newChatIdController.dispose();
+    _messageController.dispose();
     super.dispose();
   }
 
@@ -98,14 +85,77 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
-  void _selectChat(ChatThread chat) {
+  Future<void> _loadChats() async {
+    setState(() => _isLoadingChats = true);
+    try {
+      final loadedChats =
+          await _chatApi.fetchChats(userId: widget.profile.id);
+      if (!mounted) return;
+      setState(() {
+        chats = loadedChats;
+        if (selectedChat != null) {
+          final matches =
+              chats.where((chat) => chat.id == selectedChat!.id).toList();
+          selectedChat = matches.isEmpty ? null : matches.first;
+        }
+      });
+    } catch (error) {
+      _showSnackBar('Errore durante il caricamento delle chat.');
+    } finally {
+      if (mounted) {
+        setState(() => _isLoadingChats = false);
+      }
+    }
+  }
+
+  Future<void> _loadMessages(ChatThread chat) async {
+    setState(() => _isLoadingMessages = true);
+    try {
+      final messages = await _chatApi.fetchMessages(
+        userId: widget.profile.id,
+        chatId: chat.id,
+      );
+      if (!mounted) return;
+      _replaceChat(chat, messages);
+    } catch (error) {
+      _showSnackBar('Errore durante il caricamento dei messaggi.');
+    } finally {
+      if (mounted) {
+        setState(() => _isLoadingMessages = false);
+      }
+    }
+  }
+
+  void _replaceChat(ChatThread chat, List<ChatMessage> messages) {
+    final index = chats.indexWhere((element) => element.id == chat.id);
+    if (index == -1) {
+      return;
+    }
+    final updatedChat = ChatThread(
+      id: chat.id,
+      title: chat.title,
+      participantId: chat.participantId,
+      messages: messages,
+      backgroundColorValue: chat.backgroundColorValue,
+      bubbleColorValue: chat.bubbleColorValue,
+    );
+    setState(() {
+      chats[index] = updatedChat;
+      if (selectedChat?.id == updatedChat.id) {
+        selectedChat = updatedChat;
+      }
+    });
+  }
+
+  Future<void> _selectChat(ChatThread chat) async {
     setState(() {
       selectedChat = chat;
       _rightPaneView = _RightPaneView.chat;
     });
+    await _loadMessages(chat);
   }
 
-  void _createChat() {
+  Future<void> _createChat() async {
     final name = _newChatNameController.text.trim();
     final participantId = _newChatIdController.text.trim();
 
@@ -124,34 +174,44 @@ class _HomeScreenState extends State<HomeScreen> {
       return;
     }
 
-    final alreadyExists = chats.any((chat) => chat.participantId == participantId);
-    if (alreadyExists) {
+    final existingChat =
+        chats.where((chat) => chat.participantId == participantId).toList();
+    if (existingChat.isNotEmpty) {
+      await _selectChat(existingChat.first);
       _showSnackBar('Esiste già una chat con questo ID utente');
       return;
     }
 
-    final newChat = ChatThread(
-      id: ChatThread.generateTenDigitId(),
-      title: name,
-      participantId: participantId,
-      backgroundColorValue: _newChatBackgroundColor.value,
-      bubbleColorValue: _newChatBubbleColor.value,
-      messages: <ChatMessage>[
-        ChatMessage(text: 'Ciao, sono $name 👋', senderId: participantId),
-        ChatMessage(
-          text: 'Benvenuto! Questa è la tua nuova chat.',
-          senderId: widget.profile.id,
-        ),
-      ],
-    );
+    setState(() => _isCreatingChat = true);
+    try {
+      final chatId = await _chatApi.createChat(
+        userId: widget.profile.id,
+        targetUserId: participantId,
+      );
+      final newChat = ChatThread(
+        id: chatId,
+        title: name,
+        participantId: participantId,
+        backgroundColorValue: _newChatBackgroundColor.value,
+        bubbleColorValue: _newChatBubbleColor.value,
+        messages: <ChatMessage>[],
+      );
 
-    setState(() {
-      chats.insert(0, newChat);
-      selectedChat = newChat;
-      _rightPaneView = _RightPaneView.chat;
-      _newChatNameController.clear();
-      _newChatIdController.clear();
-    });
+      setState(() {
+        chats.insert(0, newChat);
+        selectedChat = newChat;
+        _rightPaneView = _RightPaneView.chat;
+        _newChatNameController.clear();
+        _newChatIdController.clear();
+      });
+      await _loadMessages(newChat);
+    } catch (error) {
+      _showSnackBar('Errore durante la creazione della chat.');
+    } finally {
+      if (mounted) {
+        setState(() => _isCreatingChat = false);
+      }
+    }
   }
 
   void _saveSettings() {
@@ -161,6 +221,33 @@ class _HomeScreenState extends State<HomeScreen> {
       return;
     }
     _showSnackBar('Impostazioni salvate');
+  }
+
+  Future<void> _sendMessage() async {
+    final chat = selectedChat;
+    final text = _messageController.text.trim();
+    if (chat == null || text.isEmpty) {
+      return;
+    }
+
+    setState(() => _isSendingMessage = true);
+    try {
+      await _chatApi.sendMessage(
+        userId: widget.profile.id,
+        receiverId: chat.participantId,
+        text: text,
+      );
+      final updatedMessages = List<ChatMessage>.from(chat.messages)
+        ..add(ChatMessage(text: text, senderId: widget.profile.id));
+      _replaceChat(chat, updatedMessages);
+      _messageController.clear();
+    } catch (error) {
+      _showSnackBar('Errore durante l\'invio del messaggio.');
+    } finally {
+      if (mounted) {
+        setState(() => _isSendingMessage = false);
+      }
+    }
   }
 
   void _showSnackBar(String message) {
@@ -176,6 +263,7 @@ class _HomeScreenState extends State<HomeScreen> {
         selectedBackgroundColor: _newChatBackgroundColor,
         selectedBubbleColor: _newChatBubbleColor,
         presetColors: _presetColors,
+        isCreating: _isCreatingChat,
         onBackgroundColorChanged: (color) {
           setState(() => _newChatBackgroundColor = color);
         },
@@ -186,7 +274,14 @@ class _HomeScreenState extends State<HomeScreen> {
       );
     }
     if (_rightPaneView == _RightPaneView.chat && selectedChat != null) {
-      return _ChatPanel(chat: selectedChat!, currentUserId: widget.profile.id);
+      return _ChatPanel(
+        chat: selectedChat!,
+        currentUserId: widget.profile.id,
+        isLoading: _isLoadingMessages,
+        isSending: _isSendingMessage,
+        messageController: _messageController,
+        onSendPressed: _sendMessage,
+      );
     }
     return _SettingsPanel(
       profile: widget.profile,
@@ -239,34 +334,37 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                   const Divider(height: 1),
                   Expanded(
-                    child: chats.isEmpty
-                        ? const _NoChatsPlaceholder()
-                        : ListView.separated(
-                            itemCount: chats.length,
-                            separatorBuilder: (_, __) => const Divider(height: 1),
-                            itemBuilder: (context, index) {
-                              final chat = chats[index];
-                              final isSelected = selectedChat == chat;
-                              return Semantics(
-                                label: isSelected
-                                    ? 'Chat ${chat.title}, selezionata'
-                                    : 'Chat ${chat.title}',
-                                child: ListTile(
-                                  selected: isSelected,
-                                  leading: CircleAvatar(
-                                    backgroundColor: _appThemeColor,
-                                    child: const Icon(
-                                      Icons.chat_bubble,
-                                      color: Colors.white,
+                    child: _isLoadingChats
+                        ? const Center(child: CircularProgressIndicator())
+                        : chats.isEmpty
+                            ? const _NoChatsPlaceholder()
+                            : ListView.separated(
+                                itemCount: chats.length,
+                                separatorBuilder: (_, __) =>
+                                    const Divider(height: 1),
+                                itemBuilder: (context, index) {
+                                  final chat = chats[index];
+                                  final isSelected = selectedChat == chat;
+                                  return Semantics(
+                                    label: isSelected
+                                        ? 'Chat ${chat.title}, selezionata'
+                                        : 'Chat ${chat.title}',
+                                    child: ListTile(
+                                      selected: isSelected,
+                                      leading: CircleAvatar(
+                                        backgroundColor: _appThemeColor,
+                                        child: const Icon(
+                                          Icons.chat_bubble,
+                                          color: Colors.white,
+                                        ),
+                                      ),
+                                      title: Text(chat.title),
+                                      subtitle: Text('ID: ${chat.participantId}'),
+                                      onTap: () => _selectChat(chat),
                                     ),
-                                  ),
-                                  title: Text(chat.title),
-                                  subtitle: Text('ID: ${chat.participantId}'),
-                                  onTap: () => _selectChat(chat),
-                                ),
-                              );
-                            },
-                          ),
+                                  );
+                                },
+                              ),
                   ),
                 ],
               ),
@@ -315,49 +413,104 @@ class _NoChatsPlaceholder extends StatelessWidget {
 }
 
 class _ChatPanel extends StatelessWidget {
-  const _ChatPanel({required this.chat, required this.currentUserId});
+  const _ChatPanel({
+    required this.chat,
+    required this.currentUserId,
+    required this.isLoading,
+    required this.isSending,
+    required this.messageController,
+    required this.onSendPressed,
+  });
 
   final ChatThread chat;
   final String currentUserId;
+  final bool isLoading;
+  final bool isSending;
+  final TextEditingController messageController;
+  final VoidCallback onSendPressed;
 
   @override
   Widget build(BuildContext context) {
     return Container(
       color: Color(chat.backgroundColorValue),
-      child: chat.messages.isEmpty
-          ? const Center(
-              child: Text(
-                'inizia la chat ora :)',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
-              ),
-            )
-          : ListView.builder(
-              padding: const EdgeInsets.all(16),
-              itemCount: chat.messages.length,
-              itemBuilder: (context, index) {
-                final message = chat.messages[index];
-                final isSent = message.isSentBy(currentUserId);
-                return Align(
-                  alignment:
-                      isSent ? Alignment.centerRight : Alignment.centerLeft,
-                  child: Container(
-                    margin: const EdgeInsets.only(bottom: 10),
-                    constraints: BoxConstraints(
-                      maxWidth: MediaQuery.of(context).size.width * 0.45,
-                    ),
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: Color(chat.bubbleColorValue),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
+      child: Column(
+        children: [
+          if (isLoading) const LinearProgressIndicator(minHeight: 2),
+          Expanded(
+            child: chat.messages.isEmpty
+                ? const Center(
                     child: Text(
-                      message.text,
-                      style: const TextStyle(color: Colors.white),
+                      'inizia la chat ora :)',
+                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+                    ),
+                  )
+                : ListView.builder(
+                    padding: const EdgeInsets.all(16),
+                    itemCount: chat.messages.length,
+                    itemBuilder: (context, index) {
+                      final message = chat.messages[index];
+                      final isSent = message.isSentBy(currentUserId);
+                      return Align(
+                        alignment:
+                            isSent ? Alignment.centerRight : Alignment.centerLeft,
+                        child: Container(
+                          margin: const EdgeInsets.only(bottom: 10),
+                          constraints: BoxConstraints(
+                            maxWidth: MediaQuery.of(context).size.width * 0.45,
+                          ),
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Color(chat.bubbleColorValue),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Text(
+                            message.text,
+                            style: const TextStyle(color: Colors.white),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+          ),
+          SafeArea(
+            top: false,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: messageController,
+                      textInputAction: TextInputAction.send,
+                      onSubmitted: (_) => onSendPressed(),
+                      decoration: const InputDecoration(
+                        hintText: 'Scrivi un messaggio...',
+                        border: OutlineInputBorder(),
+                        contentPadding: EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 8,
+                        ),
+                      ),
                     ),
                   ),
-                );
-              },
+                  const SizedBox(width: 8),
+                  IconButton(
+                    tooltip: 'Invia messaggio',
+                    onPressed: isSending ? null : onSendPressed,
+                    icon: isSending
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.send),
+                  ),
+                ],
+              ),
             ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -487,6 +640,7 @@ class _NewChatPanel extends StatelessWidget {
     required this.selectedBackgroundColor,
     required this.selectedBubbleColor,
     required this.presetColors,
+    required this.isCreating,
     required this.onBackgroundColorChanged,
     required this.onBubbleColorChanged,
     required this.onCreatePressed,
@@ -498,6 +652,7 @@ class _NewChatPanel extends StatelessWidget {
   final Color selectedBackgroundColor;
   final Color selectedBubbleColor;
   final List<Color> presetColors;
+  final bool isCreating;
   final ValueChanged<Color> onBackgroundColorChanged;
   final ValueChanged<Color> onBubbleColorChanged;
   final VoidCallback onCreatePressed;
@@ -598,9 +753,15 @@ class _NewChatPanel extends StatelessWidget {
           SizedBox(
             width: double.infinity,
             child: ElevatedButton.icon(
-              onPressed: onCreatePressed,
-              icon: const Icon(Icons.save),
-              label: const Text('Crea chat'),
+              onPressed: isCreating ? null : onCreatePressed,
+              icon: isCreating
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.save),
+              label: Text(isCreating ? 'Creazione...' : 'Crea chat'),
             ),
           ),
         ],
