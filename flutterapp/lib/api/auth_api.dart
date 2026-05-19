@@ -84,7 +84,17 @@ class AuthApi {
     if (response.statusCode >= 400) {
       throw Exception('Errore server (${response.statusCode}).');
     }
-    final payload = jsonDecode(response.body);
+
+    dynamic payload;
+    try {
+      payload = jsonDecode(response.body);
+    } catch (e) {
+      print('====== ERRORE DAL SERVER PHP ======');
+      print(response.body);
+      print('===================================');
+      throw Exception('Il server PHP ha restituito un errore HTML. Controlla la console per i dettagli.');
+    }
+
     if (payload is! Map<String, dynamic>) {
       throw Exception('Risposta non valida dal server.');
     }
