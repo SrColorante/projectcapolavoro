@@ -19,7 +19,6 @@ if ($method === 'GET') {
 
 } elseif ($method === 'POST') {
     // Crea una nuova chat se non esiste
-    $input = json_decode(file_get_contents('php://input'), true);
     $target_user_id = $input['target_user_id'] ?? null;
 
     if (!$target_user_id) {

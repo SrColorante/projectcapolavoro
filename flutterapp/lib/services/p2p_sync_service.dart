@@ -7,6 +7,7 @@ import 'package:http/http.dart' as http;
 import 'package:nsd/nsd.dart';
 
 import '../models/chat_thread.dart';
+import 'app_request_signer.dart';
 import 'offline_message_store.dart';
 
 class P2PSyncService {
@@ -91,6 +92,7 @@ class P2PSyncService {
           (item) => ChatMessage(
             text: item['text']?.toString() ?? '',
             senderId: item['senderId']?.toString() ?? '',
+            canonicalText: item['text']?.toString() ?? '',
           ),
         )
         .toList(growable: false);
@@ -108,10 +110,10 @@ class P2PSyncService {
 
     final merged = List<ChatMessage>.from(remoteMessages);
     final remoteKeys = remoteMessages
-        .map((message) => '${message.senderId}::${message.text}')
+        .map((message) => '${message.senderId}::${message.canonicalText}')
         .toSet();
     for (final message in localMessages) {
-      final key = '${message.senderId}::${message.text}';
+      final key = '${message.senderId}::${message.canonicalText}';
       if (!remoteKeys.contains(key)) {
         merged.add(message);
       }
@@ -197,16 +199,23 @@ class P2PSyncService {
 
       final syncedKeys = <String>[];
       for (final message in pending) {
+        final uri = Uri.parse('$_baseUrl/chat').replace(
+          queryParameters: {'user_id': message['senderId']?.toString() ?? ''},
+        );
+        final body = jsonEncode({
+          'textmessage': message['text']?.toString() ?? '',
+          'reciverID': message['receiverId']?.toString() ?? '',
+        });
         final response = await _client!
             .post(
-              Uri.parse('$_baseUrl/chat').replace(
-                queryParameters: {'user_id': message['senderId']?.toString() ?? ''},
+              uri,
+              headers: AppRequestSigner.buildSignedHeaders(
+                method: 'POST',
+                uri: uri,
+                body: body,
+                headers: const {'Content-Type': 'application/json'},
               ),
-              headers: {'Content-Type': 'application/json'},
-              body: jsonEncode({
-                'textmessage': message['text']?.toString() ?? '',
-                'reciverID': message['receiverId']?.toString() ?? '',
-              }),
+              body: body,
             )
             .timeout(_requestTimeout);
         if (response.statusCode >= 200 && response.statusCode < 300) {
