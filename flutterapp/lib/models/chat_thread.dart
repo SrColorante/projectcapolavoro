@@ -1,10 +1,15 @@
 import 'dart:math';
 
 class ChatMessage {
-  const ChatMessage({required this.text, required this.senderId});
+  const ChatMessage({
+    required this.text,
+    required this.senderId,
+    String? canonicalText,
+  }) : canonicalText = canonicalText ?? text;
 
   final String text;
   final String senderId;
+  final String canonicalText;
 
   bool isSentBy(String userId) => senderId == userId;
 }
