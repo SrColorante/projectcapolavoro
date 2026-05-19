@@ -4,6 +4,8 @@ import 'package:flutter/services.dart';
 import '../api/chat_api.dart';
 import '../models/chat_thread.dart';
 import '../models/user_profile.dart';
+import '../services/app_preferences.dart';
+import '../services/message_translation_service.dart';
 
 enum _RightPaneView { settings, chat, newChat }
 
@@ -42,14 +44,17 @@ class _HomeScreenState extends State<HomeScreen> {
   late final TextEditingController _newChatNameController;
   late final TextEditingController _newChatIdController;
   late final TextEditingController _messageController;
+  late final List<LanguageOption> _languageOptions;
 
   Color _appThemeColor = const Color(0xFFDC143C);
   Color _newChatBackgroundColor = const Color(0xFFFFEEF1);
   Color _newChatBubbleColor = const Color(0xFFDC143C);
+  String _preferredLanguageCode = AppPreferences.defaultLanguageCode;
   bool _isLoadingChats = false;
   bool _isLoadingMessages = false;
   bool _isSendingMessage = false;
   bool _isCreatingChat = false;
+  bool _isSavingSettings = false;
 
   @override
   void initState() {
@@ -59,6 +64,8 @@ class _HomeScreenState extends State<HomeScreen> {
     _newChatNameController = TextEditingController();
     _newChatIdController = TextEditingController();
     _messageController = TextEditingController();
+    _languageOptions = MessageTranslationService.supportedLanguages();
+    _applySavedPreferences();
     _loadChats();
   }
 
@@ -214,13 +221,39 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  void _saveSettings() {
+  Future<void> _applySavedPreferences() async {
+    await AppPreferences.instance.load();
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _appThemeColor = Color(AppPreferences.instance.themeColorValue);
+      _preferredLanguageCode = AppPreferences.instance.preferredLanguageCode;
+    });
+  }
+
+  Future<void> _saveSettings() async {
     final nickname = _nicknameController.text.trim();
     if (nickname.isEmpty) {
       _showSnackBar('Il nickname non può essere vuoto');
       return;
     }
-    _showSnackBar('Impostazioni salvate');
+    setState(() => _isSavingSettings = true);
+    try {
+      await AppPreferences.instance.saveSettings(
+        themeColorValue: _appThemeColor.value,
+        preferredLanguageCode: _preferredLanguageCode,
+      );
+      final chat = selectedChat;
+      if (chat != null) {
+        await _loadMessages(chat);
+      }
+      _showSnackBar('Impostazioni salvate su questo dispositivo');
+    } finally {
+      if (mounted) {
+        setState(() => _isSavingSettings = false);
+      }
+    }
   }
 
   Future<void> _sendMessage() async {
@@ -288,10 +321,16 @@ class _HomeScreenState extends State<HomeScreen> {
       profile: widget.profile,
       nicknameController: _nicknameController,
       selectedThemeColor: _appThemeColor,
+      selectedLanguageCode: _preferredLanguageCode,
+      supportedLanguages: _languageOptions,
       presetColors: _presetColors,
       onThemeColorChanged: (color) {
         setState(() => _appThemeColor = color);
       },
+      onLanguageChanged: (languageCode) {
+        setState(() => _preferredLanguageCode = languageCode);
+      },
+      isSaving: _isSavingSettings,
       onSavePressed: _saveSettings,
     );
   }
@@ -521,17 +560,25 @@ class _SettingsPanel extends StatelessWidget {
     required this.profile,
     required this.nicknameController,
     required this.selectedThemeColor,
+    required this.selectedLanguageCode,
+    required this.supportedLanguages,
     required this.presetColors,
     required this.onThemeColorChanged,
+    required this.onLanguageChanged,
+    required this.isSaving,
     required this.onSavePressed,
   });
 
   final UserProfile profile;
   final TextEditingController nicknameController;
   final Color selectedThemeColor;
+  final String selectedLanguageCode;
+  final List<LanguageOption> supportedLanguages;
   final List<Color> presetColors;
   final ValueChanged<Color> onThemeColorChanged;
-  final VoidCallback onSavePressed;
+  final ValueChanged<String> onLanguageChanged;
+  final bool isSaving;
+  final Future<void> Function() onSavePressed;
 
   @override
   Widget build(BuildContext context) {
@@ -556,6 +603,48 @@ class _SettingsPanel extends StatelessWidget {
                   fontWeight: FontWeight.bold,
                   letterSpacing: 2,
                 ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Lingua dei messaggi',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+                  ),
+                  const SizedBox(height: 8),
+                  DropdownButtonFormField<String>(
+                    value: selectedLanguageCode,
+                    decoration: const InputDecoration(
+                      labelText: 'Lingua preferita',
+                      prefixIcon: Icon(Icons.language),
+                    ),
+                    items: supportedLanguages
+                        .map(
+                          (language) => DropdownMenuItem<String>(
+                            value: language.code,
+                            child: Text(language.label),
+                          ),
+                        )
+                        .toList(growable: false),
+                    onChanged: (value) {
+                      if (value != null) {
+                        onLanguageChanged(value);
+                      }
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    MessageTranslationService.supportsRuntimeTranslationOnCurrentPlatform
+                        ? 'I messaggi vengono tradotti sul dispositivo prima dell\'invio e dopo la ricezione.'
+                        : 'La traduzione automatica on-device è disponibile su Android/iOS. Su questa piattaforma i messaggi restano in inglese se la traduzione non è disponibile.',
+                  ),
+                ],
               ),
             ),
           ),
@@ -622,8 +711,14 @@ class _SettingsPanel extends StatelessWidget {
           SizedBox(
             width: double.infinity,
             child: ElevatedButton.icon(
-              onPressed: onSavePressed,
-              icon: const Icon(Icons.save),
+              onPressed: isSaving ? null : onSavePressed,
+              icon: isSaving
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.save),
               label: const Text('Salva impostazioni'),
             ),
           ),

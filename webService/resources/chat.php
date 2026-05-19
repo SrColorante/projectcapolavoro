@@ -35,7 +35,6 @@ if ($method === 'GET') {
 
 } elseif ($method === 'POST') {
     // Inserisce un nuovo messaggio
-    $input = json_decode(file_get_contents('php://input'), true);
     $text = $input['textmessage'] ?? '';
     $receiver_id = $input['reciverID'] ?? null;
 
@@ -57,7 +56,6 @@ if ($method === 'GET') {
 
 } elseif ($method === 'PATCH') {
     // Modifica le informazioni sull'utente (es. nickname)
-    $input = json_decode(file_get_contents('php://input'), true);
     $new_nickname = $input['nickname'] ?? null;
 
     if ($new_nickname) {
