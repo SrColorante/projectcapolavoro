@@ -5,11 +5,6 @@ if ($method !== 'POST') {
     exit;
 }
 
-$input = json_decode(file_get_contents('php://input'), true);
-if (!is_array($input)) {
-    $input = [];
-}
-
 $action = $input['action'] ?? null;
 $email = trim($input['email'] ?? '');
 $password = $input['password'] ?? '';

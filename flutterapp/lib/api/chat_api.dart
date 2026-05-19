@@ -5,19 +5,29 @@ import 'dart:io';
 import 'package:http/http.dart' as http;
 
 import '../models/chat_thread.dart';
+import '../services/app_preferences.dart';
+import '../services/app_request_signer.dart';
+import '../services/message_translation_service.dart';
 import 'auth_api.dart';
 import '../services/p2p_sync_service.dart';
 
 class ChatApi {
-  ChatApi({http.Client? client, String? baseUrl})
+  ChatApi({
+    http.Client? client,
+    String? baseUrl,
+    MessageTranslator? translationService,
+  })
       : _client = client ?? http.Client(),
-        _baseUrl = baseUrl ?? AuthApi.baseUrl;
+        _baseUrl = baseUrl ?? AuthApi.baseUrl,
+        _translationService =
+            translationService ?? MessageTranslationService.instance;
 
   static const _requestTimeout = Duration(seconds: 5);
 
   final http.Client _client;
   final String _baseUrl;
   final P2PSyncService _p2pSyncService = P2PSyncService.instance;
+  final MessageTranslator _translationService;
 
   Future<List<ChatThread>> fetchChats({required String userId}) async {
     await _initializeOfflineFirst(userId);
@@ -25,7 +35,16 @@ class ChatApi {
       queryParameters: {'user_id': userId},
     );
     try {
-      final response = await _client.get(uri).timeout(_requestTimeout);
+      final response = await _client
+          .get(
+            uri,
+            headers: AppRequestSigner.buildSignedHeaders(
+              method: 'GET',
+              uri: uri,
+              body: '',
+            ),
+          )
+          .timeout(_requestTimeout);
       final payload = _decodePayload(response);
       final data = payload['data'] as List<dynamic>? ?? <dynamic>[];
 
@@ -70,7 +89,16 @@ class ChatApi {
       queryParameters: {'user_id': userId, 'chat_id': chatId},
     );
     try {
-      final response = await _client.get(uri).timeout(_requestTimeout);
+      final response = await _client
+          .get(
+            uri,
+            headers: AppRequestSigner.buildSignedHeaders(
+              method: 'GET',
+              uri: uri,
+              body: '',
+            ),
+          )
+          .timeout(_requestTimeout);
       final payload = _decodePayload(response);
       final data = payload['data'] as List<dynamic>? ?? <dynamic>[];
       final remoteMessages = data.map((item) {
@@ -78,18 +106,24 @@ class ChatApi {
         return ChatMessage(
           text: message['textmessage']?.toString() ?? '',
           senderId: message['senderID']?.toString() ?? '',
+          canonicalText: message['textmessage']?.toString() ?? '',
         );
       }).toList(growable: false);
-      return _p2pSyncService.mergeWithLocalMessages(
+      final mergedMessages = await _p2pSyncService.mergeWithLocalMessages(
         userId: userId,
         chatId: chatId,
         remoteMessages: remoteMessages,
       );
+      return _localizeMessages(mergedMessages);
     } catch (error) {
       if (!_isConnectivityError(error)) {
         rethrow;
       }
-      return _p2pSyncService.buildLocalMessages(userId: userId, chatId: chatId);
+      final localMessages = await _p2pSyncService.buildLocalMessages(
+        userId: userId,
+        chatId: chatId,
+      );
+      return _localizeMessages(localMessages);
     }
   }
 
@@ -102,11 +136,17 @@ class ChatApi {
       queryParameters: {'user_id': userId},
     );
     try {
+      final body = jsonEncode({'target_user_id': targetUserId});
       final response = await _client
           .post(
             uri,
-            headers: {'Content-Type': 'application/json'},
-            body: jsonEncode({'target_user_id': targetUserId}),
+            headers: AppRequestSigner.buildSignedHeaders(
+              method: 'POST',
+              uri: uri,
+              body: body,
+              headers: const {'Content-Type': 'application/json'},
+            ),
+            body: body,
           )
           .timeout(_requestTimeout);
       if (response.statusCode >= 400) {
@@ -154,16 +194,29 @@ class ChatApi {
       chatId: effectiveChatId,
       participantId: receiverId,
     );
+    final translatedText = await _translationService.translateOutgoing(
+      text,
+      sourceLanguageCode: AppPreferences.instance.preferredLanguageCode,
+    );
 
     final uri = Uri.parse('$_baseUrl/chat').replace(
       queryParameters: {'user_id': userId},
     );
     try {
+      final body = jsonEncode({
+        'textmessage': translatedText,
+        'reciverID': receiverId,
+      });
       final response = await _client
           .post(
             uri,
-            headers: {'Content-Type': 'application/json'},
-            body: jsonEncode({'textmessage': text, 'reciverID': receiverId}),
+            headers: AppRequestSigner.buildSignedHeaders(
+              method: 'POST',
+              uri: uri,
+              body: body,
+              headers: const {'Content-Type': 'application/json'},
+            ),
+            body: body,
           )
           .timeout(_requestTimeout);
       _decodePayload(response);
@@ -176,12 +229,12 @@ class ChatApi {
         senderId: userId,
         receiverId: receiverId,
         chatId: effectiveChatId,
-        text: text,
+        text: translatedText,
       );
       await _p2pSyncService.queueOutgoing(
         ownerId: userId,
         receiverId: receiverId,
-        text: text,
+        text: translatedText,
         chatId: effectiveChatId,
         p2pDelivered: deliveredByP2P,
       );
@@ -191,6 +244,25 @@ class ChatApi {
   Future<void> syncPendingMessages({required String userId}) async {
     await _initializeOfflineFirst(userId);
     await _p2pSyncService.syncPendingMessages();
+  }
+
+  Future<List<ChatMessage>> _localizeMessages(List<ChatMessage> messages) async {
+    final preferredLanguageCode = AppPreferences.instance.preferredLanguageCode;
+    final localizedMessages = <ChatMessage>[];
+    for (final message in messages) {
+      final localizedText = await _translationService.translateIncoming(
+        message.canonicalText,
+        targetLanguageCode: preferredLanguageCode,
+      );
+      localizedMessages.add(
+        ChatMessage(
+          text: localizedText,
+          senderId: message.senderId,
+          canonicalText: message.canonicalText,
+        ),
+      );
+    }
+    return localizedMessages;
   }
 
   Map<String, dynamic> _decodePayload(http.Response response) {
