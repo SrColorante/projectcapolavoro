@@ -5,8 +5,6 @@ if (!$current_user_id) {
     exit;
 }
 
-$input = json_decode(file_get_contents('php://input'), true);
-
 if ($method === 'GET') {
     // Restituisce le impostazioni correnti (Placeholder, potresti salvarle in DB o JSON file)
     echo json_encode([

@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import '../models/user_profile.dart';
+import '../services/app_request_signer.dart';
 
 class AuthApi {
   static const String _defaultUserName = 'Nuovo utente';
@@ -30,14 +31,20 @@ class AuthApi {
     required String password,
   }) async {
     final uri = Uri.parse('$baseUrl/auth');
+    final body = jsonEncode({
+      'action': 'login',
+      'email': email,
+      'password': password,
+    });
     final response = await _client.post(
       uri,
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({
-        'action': 'login',
-        'email': email,
-        'password': password,
-      }),
+      headers: AppRequestSigner.buildSignedHeaders(
+        method: 'POST',
+        uri: uri,
+        body: body,
+        headers: const {'Content-Type': 'application/json'},
+      ),
+      body: body,
     );
 
     return _parseProfile(response, fallbackName: 'Utente');
@@ -50,15 +57,21 @@ class AuthApi {
   }) async {
     final normalizedName = name.trim().isEmpty ? _defaultUserName : name.trim();
     final uri = Uri.parse('$baseUrl/auth');
+    final body = jsonEncode({
+      'action': 'register',
+      'name': normalizedName,
+      'email': email,
+      'password': password,
+    });
     final response = await _client.post(
       uri,
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({
-        'action': 'register',
-        'name': normalizedName,
-        'email': email,
-        'password': password,
-      }),
+      headers: AppRequestSigner.buildSignedHeaders(
+        method: 'POST',
+        uri: uri,
+        body: body,
+        headers: const {'Content-Type': 'application/json'},
+      ),
+      body: body,
     );
 
     return _parseProfile(response, fallbackName: normalizedName);
