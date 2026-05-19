@@ -8,7 +8,7 @@ import '../services/app_request_signer.dart';
 class AuthApi {
   static const String _defaultUserName = 'Nuovo utente';
   static const String _defaultBaseUrl =
-      'https://69a4-188-216-215-204.ngrok-free.app/webService/index.php';
+      'https://3e39-93-71-129-17.ngrok-free.app/webService/index.php';
   static http.Client _client = http.Client();
   static String baseUrl = _defaultBaseUrl;
 
