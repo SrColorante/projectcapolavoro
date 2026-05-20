@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../api/auth_api.dart';
+import '../services/message_translation_service.dart';
 import 'home_screen.dart';
 
 class AuthScreen extends StatefulWidget {
@@ -13,6 +14,7 @@ class AuthScreen extends StatefulWidget {
 class _AuthScreenState extends State<AuthScreen> {
   bool isLogin = true;
   bool isLoading = false;
+  String _preferredLanguageCode = 'en';
   final emailController = TextEditingController();
   final passwordController = TextEditingController();
   final nameController = TextEditingController();
@@ -37,8 +39,29 @@ class _AuthScreenState extends State<AuthScreen> {
               name: nameController.text,
               email: emailController.text,
               password: passwordController.text,
+              preferredLanguageCode: _preferredLanguageCode,
             );
 
+      if (!mounted) return;
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute<void>(
+          builder: (_) => HomeScreen(profile: profile),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => isLoading = false);
+      }
+    }
+  }
+
+  Future<void> _continueAsGuest() async {
+    setState(() => isLoading = true);
+    try {
+      final profile = await AuthApi.guestLogin(
+        name: nameController.text.trim().isEmpty ? 'Ospite' : nameController.text.trim(),
+        preferredLanguageCode: _preferredLanguageCode,
+      );
       if (!mounted) return;
       Navigator.of(context).pushReplacement(
         MaterialPageRoute<void>(
@@ -100,6 +123,28 @@ class _AuthScreenState extends State<AuthScreen> {
                         ),
                       ),
                     if (!isLogin) const SizedBox(height: 12),
+                    if (!isLogin)
+                      DropdownButtonFormField<String>(
+                        value: _preferredLanguageCode,
+                        decoration: const InputDecoration(
+                          labelText: 'Lingua app',
+                          prefixIcon: Icon(Icons.language),
+                        ),
+                        items: MessageTranslationService.supportedLanguages()
+                            .map(
+                              (language) => DropdownMenuItem<String>(
+                                value: language.code,
+                                child: Text(language.label),
+                              ),
+                            )
+                            .toList(growable: false),
+                        onChanged: (value) {
+                          if (value != null) {
+                            setState(() => _preferredLanguageCode = value);
+                          }
+                        },
+                      ),
+                    if (!isLogin) const SizedBox(height: 12),
                     TextField(
                       controller: emailController,
                       keyboardType: TextInputType.emailAddress,
@@ -139,6 +184,16 @@ class _AuthScreenState extends State<AuthScreen> {
                       ),
                     ),
                     const SizedBox(height: 10),
+                    if (!isLogin)
+                      SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton.icon(
+                          onPressed: isLoading ? null : _continueAsGuest,
+                          icon: const Icon(Icons.person_outline),
+                          label: const Text('Continua come ospite'),
+                        ),
+                      ),
+                    if (!isLogin) const SizedBox(height: 10),
                     Semantics(
                       label:
                           'Informazione: le chiamate API sono collegate al web service.',

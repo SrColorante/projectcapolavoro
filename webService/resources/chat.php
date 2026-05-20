@@ -36,11 +36,14 @@ if ($method === 'GET') {
 } elseif ($method === 'POST') {
     // Inserisce un nuovo messaggio
     $text = $input['textmessage'] ?? '';
+    $encrypted_payload = $input['encrypted_payload'] ?? null;
+    $message_signature = trim($input['message_signature'] ?? '');
+    $is_certified = ($input['is_certified'] ?? false) ? 1 : 0;
     $receiver_id = $input['reciverID'] ?? null;
 
-    if (!$text || !$receiver_id) {
+    if ((!$text && $encrypted_payload === null) || !$receiver_id) {
         http_response_code(400);
-        echo json_encode(["error" => "Specificare textmessage e reciverID"]);
+        echo json_encode(["error" => "Specificare textmessage (o encrypted_payload) e reciverID"]);
         exit;
     }
     if (!is_ten_digit_id(strval($receiver_id))) {
@@ -49,8 +52,32 @@ if ($method === 'GET') {
         exit;
     }
 
-    $stmt = $pdo->prepare("INSERT INTO messaggi (textmessage, senderID, reciverID, timenow) VALUES (?, ?, ?, NOW())");
-    $stmt->execute([$text, $current_user_id, $receiver_id]);
+    $payload = $text;
+    $e2ee_metadata = null;
+    if ($encrypted_payload !== null) {
+        $payload = json_encode([
+            "encrypted_payload" => $encrypted_payload
+        ], JSON_UNESCAPED_SLASHES);
+        $e2ee_metadata = json_encode([
+            "encrypted" => true,
+            "sender_id" => strval($current_user_id),
+            "receiver_id" => strval($receiver_id),
+            "created_at" => gmdate('c')
+        ], JSON_UNESCAPED_SLASHES);
+    }
+
+    $stmt = $pdo->prepare("INSERT INTO messaggi (
+                               textmessage, senderID, reciverID, timenow,
+                               is_certified, message_signature, e2ee_metadata
+                           ) VALUES (?, ?, ?, NOW(), ?, ?, ?)");
+    $stmt->execute([
+        $payload,
+        $current_user_id,
+        $receiver_id,
+        $is_certified,
+        $message_signature === '' ? null : $message_signature,
+        $e2ee_metadata
+    ]);
     
     echo json_encode(["success" => true, "message" => "Messaggio inviato"]);
 
