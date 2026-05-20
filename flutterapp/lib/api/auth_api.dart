@@ -8,7 +8,7 @@ import '../services/app_request_signer.dart';
 class AuthApi {
   static const String _defaultUserName = 'Nuovo utente';
   static const String _defaultBaseUrl =
-      'https://3e39-93-71-129-17.ngrok-free.app/webService/index.php';
+      'https://41a0-2-41-196-194.ngrok-free.app/webService/index.php';
   static http.Client _client = http.Client();
   static String baseUrl = _defaultBaseUrl;
 
@@ -42,7 +42,10 @@ class AuthApi {
         method: 'POST',
         uri: uri,
         body: body,
-        headers: const {'Content-Type': 'application/json'},
+        headers: const {
+          'Content-Type': 'application/json',
+          'ngrok-skip-browser-warning': 'true',
+        },
       ),
       body: body,
     );
@@ -87,7 +90,10 @@ class AuthApi {
         method: 'POST',
         uri: uri,
         body: body,
-        headers: const {'Content-Type': 'application/json'},
+        headers: const {
+          'Content-Type': 'application/json',
+          'ngrok-skip-browser-warning': 'true',
+        },
       ),
       body: body,
     );
@@ -113,7 +119,10 @@ class AuthApi {
         method: 'POST',
         uri: uri,
         body: body,
-        headers: const {'Content-Type': 'application/json'},
+        headers: const {
+          'Content-Type': 'application/json',
+          'ngrok-skip-browser-warning': 'true',
+        },
       ),
       body: body,
     );
