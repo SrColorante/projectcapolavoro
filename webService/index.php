@@ -148,10 +148,18 @@ switch ($resource) {
         error_log("Routing verso: auth.php");
         require 'resources/auth.php';
         break;
+    case 'security':
+        error_log("Routing verso: security.php");
+        require 'resources/security.php';
+        break;
+    case 'files':
+        error_log("Routing verso: files.php");
+        require 'resources/files.php';
+        break;
     default:
         error_log("Errore 404: Risorsa '$resource' non trovata.");
         http_response_code(404);
-        echo json_encode(["error" => "Risorsa non trovata. Endpoint validi: /chats, /chat, /settings, /auth"]);
+        echo json_encode(["error" => "Risorsa non trovata. Endpoint validi: /chats, /chat, /settings, /auth, /security, /files"]);
         break;
 }
 error_log("=== FINE RICHIESTA ===");

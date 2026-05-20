@@ -27,7 +27,7 @@ void main() {
               'email': email,
             },
           });
-          if (action != 'login' && action != 'register') {
+          if (action != 'login' && action != 'register' && action != 'guest_login') {
             return http.Response('{"success":false}', 400);
           }
           return http.Response(body, 200);
@@ -58,6 +58,18 @@ void main() {
 
       expect(UserProfile.isValidTenDigitId(generatedUserId), isTrue);
       expect(ChatThread.isValidTenDigitId(generatedChatId), isTrue);
+    });
+
+    test('validates profile audio duration max 5 seconds', () {
+      expect(
+        () => UserProfile(
+          id: '1234567890',
+          name: 'Mario',
+          email: 'mario@test.com',
+          profileAudioDurationSeconds: 5.1,
+        ),
+        throwsArgumentError,
+      );
     });
 
     test('auth API returns and preserves 10-digit IDs by email', () async {
