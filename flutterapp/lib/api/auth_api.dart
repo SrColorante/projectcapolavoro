@@ -8,7 +8,7 @@ import '../services/app_request_signer.dart';
 class AuthApi {
   static const String _defaultUserName = 'Nuovo utente';
   static const String _defaultBaseUrl =
-      'https://41a0-2-41-196-194.ngrok-free.app/webService';
+      'https://41a0-2-41-196-194.ngrok-free.app/index.php';
   static http.Client _client = http.Client();
   static String baseUrl = _defaultBaseUrl;
 
@@ -30,7 +30,7 @@ class AuthApi {
     required String email,
     required String password,
   }) async {
-    final uri = Uri.parse('$baseUrl/auth');
+    final uri = Uri.parse('$baseUrl?route=auth');
     final body = jsonEncode({
       'action': 'login',
       'email': email,
@@ -69,7 +69,7 @@ class AuthApi {
     String? twoFactorDestination,
   }) async {
     final normalizedName = name.trim().isEmpty ? _defaultUserName : name.trim();
-    final uri = Uri.parse('$baseUrl/auth');
+    final uri = Uri.parse('$baseUrl?route=auth');
     final body = jsonEncode({
       'action': 'register',
       'name': normalizedName,
@@ -108,7 +108,7 @@ class AuthApi {
     String preferredLanguageCode = 'en',
     String? e2eePublicKey,
   }) async {
-    final uri = Uri.parse('$baseUrl/auth');
+    final uri = Uri.parse('$baseUrl?route=auth');
     final body = jsonEncode({
       'action': 'guest_login',
       'name': name,
@@ -138,7 +138,7 @@ class AuthApi {
     required String fallbackName,
   }) {
     if (response.statusCode >= 400) {
-      throw Exception('Errore server (${response.statusCode}).');
+      throw Exception('Errore server (${response.statusCode}):\n${response.body}');
     }
 
     dynamic payload;
