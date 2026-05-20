@@ -54,6 +54,15 @@ class AuthApi {
     required String name,
     required String email,
     required String password,
+    String preferredLanguageCode = 'en',
+    String? profileBio,
+    String? profilePhotoUrl,
+    String? profileAudioUrl,
+    double? profileAudioDurationSeconds,
+    String? e2eePublicKey,
+    bool twoFactorEnabled = false,
+    String? twoFactorChannel,
+    String? twoFactorDestination,
   }) async {
     final normalizedName = name.trim().isEmpty ? _defaultUserName : name.trim();
     final uri = Uri.parse('$baseUrl/auth');
@@ -62,6 +71,15 @@ class AuthApi {
       'name': normalizedName,
       'email': email,
       'password': password,
+      'preferred_language': preferredLanguageCode,
+      'profile_bio': profileBio,
+      'profile_photo_url': profilePhotoUrl,
+      'profile_audio_url': profileAudioUrl,
+      'profile_audio_duration_seconds': profileAudioDurationSeconds,
+      'e2ee_public_key': e2eePublicKey,
+      'two_factor_enabled': twoFactorEnabled,
+      'two_factor_channel': twoFactorChannel,
+      'two_factor_destination': twoFactorDestination,
     });
     final response = await _client.post(
       uri,
@@ -75,6 +93,32 @@ class AuthApi {
     );
 
     return _parseProfile(response, fallbackName: normalizedName);
+  }
+
+  static Future<UserProfile> guestLogin({
+    String name = 'Ospite',
+    String preferredLanguageCode = 'en',
+    String? e2eePublicKey,
+  }) async {
+    final uri = Uri.parse('$baseUrl/auth');
+    final body = jsonEncode({
+      'action': 'guest_login',
+      'name': name,
+      'preferred_language': preferredLanguageCode,
+      'e2ee_public_key': e2eePublicKey,
+    });
+    final response = await _client.post(
+      uri,
+      headers: AppRequestSigner.buildSignedHeaders(
+        method: 'POST',
+        uri: uri,
+        body: body,
+        headers: const {'Content-Type': 'application/json'},
+      ),
+      body: body,
+    );
+
+    return _parseProfile(response, fallbackName: name.trim().isEmpty ? 'Ospite' : name.trim());
   }
 
   static UserProfile _parseProfile(
@@ -108,6 +152,13 @@ class AuthApi {
     final name = data['name']?.toString().trim();
     final nickname = data['nickname']?.toString().trim();
     final email = data['email']?.toString() ?? '';
+    final profileBio = data['profile_bio']?.toString().trim();
+    final profilePhotoUrl = data['profile_photo_url']?.toString().trim();
+    final profileAudioUrl = data['profile_audio_url']?.toString().trim();
+    final profileAudioDurationRaw = data['profile_audio_duration_seconds'];
+    final profileAudioDuration = profileAudioDurationRaw is num
+        ? profileAudioDurationRaw.toDouble()
+        : double.tryParse(profileAudioDurationRaw?.toString() ?? '');
 
     return UserProfile(
       id: id,
@@ -116,6 +167,22 @@ class AuthApi {
           ? fallbackName
           : nickname,
       email: email,
+      isGuest: data['is_guest'] == true,
+      preferredLanguageCode:
+          data['preferred_language']?.toString() ?? 'en',
+      profileBio: (profileBio == null || profileBio.isEmpty) ? null : profileBio,
+      profilePhotoUrl: (profilePhotoUrl == null || profilePhotoUrl.isEmpty)
+          ? null
+          : profilePhotoUrl,
+      profileAudioUrl: (profileAudioUrl == null || profileAudioUrl.isEmpty)
+          ? null
+          : profileAudioUrl,
+      profileAudioDurationSeconds: profileAudioDuration,
+      e2eePublicKey: data['e2ee_public_key']?.toString(),
+      twoFactorEnabled: data['two_factor_enabled'] == true,
+      twoFactorChannel: data['two_factor_channel']?.toString(),
+      twoFactorDestination: data['two_factor_destination']?.toString(),
+      isPecCertified: data['pec_certified'] == true,
     );
   }
 }

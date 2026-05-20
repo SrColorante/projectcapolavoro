@@ -10,6 +10,18 @@ CREATE TABLE utenti (
     email VARCHAR(120) BINARY NOT NULL UNIQUE,
     password_hash VARCHAR(255) BINARY NOT NULL,
     dataCreazione DATE NOT NULL,
+    is_guest TINYINT(1) NOT NULL DEFAULT 0,
+    preferred_language VARCHAR(10) BINARY NOT NULL DEFAULT 'en',
+    profile_bio VARCHAR(500) BINARY NULL,
+    profile_photo_url VARCHAR(500) BINARY NULL,
+    profile_audio_url VARCHAR(500) BINARY NULL,
+    profile_audio_duration_seconds DECIMAL(4,2) NULL,
+    e2ee_public_key TEXT BINARY NULL,
+    two_factor_enabled TINYINT(1) NOT NULL DEFAULT 0,
+    two_factor_channel ENUM('email', 'phone') NULL,
+    two_factor_destination VARCHAR(190) BINARY NULL,
+    two_factor_verified_at DATETIME NULL,
+    pec_certified_at DATETIME NULL,
     CONSTRAINT CHK_IDUTENTE_10_DIGITS CHECK (IDutente BETWEEN 1000000000 AND 9999999999)
 );
 
@@ -28,10 +40,40 @@ CREATE TABLE messaggi (
     senderID BIGINT UNSIGNED,
     reciverID BIGINT UNSIGNED,
     timenow DATETIME NOT NULL,
+    is_certified TINYINT(1) NOT NULL DEFAULT 0,
+    message_signature TEXT BINARY NULL,
+    e2ee_metadata JSON NULL,
     CONSTRAINT FK_SENDER FOREIGN KEY (senderID) REFERENCES utenti(IDutente),
     CONSTRAINT FK_RECEIVER FOREIGN KEY (reciverID) REFERENCES utenti(IDutente),
     CONSTRAINT CHK_SENDER_10_DIGITS CHECK (senderID BETWEEN 1000000000 AND 9999999999),
     CONSTRAINT CHK_RECEIVER_10_DIGITS CHECK (reciverID BETWEEN 1000000000 AND 9999999999)
+);
+
+CREATE TABLE otp_two_factor_codes (
+    id BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
+    userID BIGINT UNSIGNED NOT NULL,
+    channel ENUM('email', 'phone') NOT NULL,
+    destination VARCHAR(190) BINARY NOT NULL,
+    otp_hash VARCHAR(255) BINARY NOT NULL,
+    purpose ENUM('login', 'password_recovery', 'pec_certification') NOT NULL,
+    expires_at DATETIME NOT NULL,
+    consumed_at DATETIME NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT FK_OTP_USER FOREIGN KEY (userID) REFERENCES utenti(IDutente)
+);
+
+CREATE TABLE shared_files (
+    id BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
+    owner_user_id BIGINT UNSIGNED NOT NULL,
+    file_name VARCHAR(255) BINARY NOT NULL,
+    mime_type VARCHAR(120) BINARY NOT NULL,
+    size_bytes BIGINT UNSIGNED NOT NULL,
+    source_url VARCHAR(1000) BINARY NULL,
+    preview_type ENUM('audio', 'image', 'video', 'gif', 'pdf', 'link', 'file') NOT NULL DEFAULT 'file',
+    preview_payload JSON NULL,
+    bypassed_limit TINYINT(1) NOT NULL DEFAULT 0,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT FK_SHARED_FILE_OWNER FOREIGN KEY (owner_user_id) REFERENCES utenti(IDutente)
 );
 
 INSERT INTO utenti (IDutente, nome, cognome, nickname, email, password_hash, dataCreazione) VALUES
