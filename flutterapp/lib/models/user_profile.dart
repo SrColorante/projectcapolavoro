@@ -24,7 +24,7 @@ class UserProfile {
       throw ArgumentError.value(id, 'id', 'User ID must be a 10-digit number');
     }
     if (profileAudioDurationSeconds != null &&
-        (profileAudioDurationSeconds < 0 || profileAudioDurationSeconds > 5)) {
+        (profileAudioDurationSeconds! < 0 || profileAudioDurationSeconds! > 5)) {
       throw ArgumentError.value(
         profileAudioDurationSeconds,
         'profileAudioDurationSeconds',
