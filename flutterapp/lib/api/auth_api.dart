@@ -8,7 +8,7 @@ import '../services/app_request_signer.dart';
 class AuthApi {
   static const String _defaultUserName = 'Nuovo utente';
   static const String _defaultBaseUrl =
-      'https://41a0-2-41-196-194.ngrok-free.app/webService/index.php';
+      'https://41a0-2-41-196-194.ngrok-free.app/webService';
   static http.Client _client = http.Client();
   static String baseUrl = _defaultBaseUrl;
 
@@ -45,6 +45,7 @@ class AuthApi {
         headers: const {
           'Content-Type': 'application/json',
           'ngrok-skip-browser-warning': 'true',
+          'User-Agent': 'CrimsonChatApp/1.0.0',
         },
       ),
       body: body,
@@ -93,6 +94,7 @@ class AuthApi {
         headers: const {
           'Content-Type': 'application/json',
           'ngrok-skip-browser-warning': 'true',
+          'User-Agent': 'CrimsonChatApp/1.0.0',
         },
       ),
       body: body,
@@ -122,6 +124,7 @@ class AuthApi {
         headers: const {
           'Content-Type': 'application/json',
           'ngrok-skip-browser-warning': 'true',
+          'User-Agent': 'CrimsonChatApp/1.0.0',
         },
       ),
       body: body,
