@@ -114,7 +114,7 @@ $resource = basename($request_uri);
 
 // Fix per server senza mod_rewrite abilitato (.htaccess ignorato)
 // Se la richiesta arriva a index.php, guardiamo il parametro ?route=...
-if ($resource === 'index.php' || $resource === 'webService') {
+if ($resource === 'index.php' || $resource === 'index' || $resource === 'webService') {
     $resource = $_GET['route'] ?? 'auth';
 }
 

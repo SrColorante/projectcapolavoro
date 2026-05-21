@@ -5,10 +5,10 @@ import 'package:http/http.dart' as http;
 import '../models/user_profile.dart';
 import '../services/app_request_signer.dart';
 
-class AuthApi {
+class AuthApi { 
   static const String _defaultUserName = 'Nuovo utente';
   static const String _defaultBaseUrl =
-      'https://41a0-2-41-196-194.ngrok-free.app/index.php';
+      'https://31b6-2-41-197-102.ngrok-free.app/index.php';
   static http.Client _client = http.Client();
   static String baseUrl = _defaultBaseUrl;
 
@@ -45,7 +45,7 @@ class AuthApi {
         headers: const {
           'Content-Type': 'application/json',
           'ngrok-skip-browser-warning': 'true',
-          'User-Agent': 'CrimsonChatApp/1.0.0',
+          'User-Agent': 'QuiceApp/1.0.0',
         },
       ),
       body: body,
@@ -94,7 +94,7 @@ class AuthApi {
         headers: const {
           'Content-Type': 'application/json',
           'ngrok-skip-browser-warning': 'true',
-          'User-Agent': 'CrimsonChatApp/1.0.0',
+          'User-Agent': 'QuiceApp/1.0.0',
         },
       ),
       body: body,
@@ -124,7 +124,7 @@ class AuthApi {
         headers: const {
           'Content-Type': 'application/json',
           'ngrok-skip-browser-warning': 'true',
-          'User-Agent': 'CrimsonChatApp/1.0.0',
+          'User-Agent': 'QuiceApp/1.0.0',
         },
       ),
       body: body,
@@ -137,6 +137,12 @@ class AuthApi {
     http.Response response, {
     required String fallbackName,
   }) {
+    print('--- HTTP RESPONSE DEBUG ---');
+    print('Status Code: ${response.statusCode}');
+    print('Headers: ${response.headers}');
+    print('Body: ${response.body}');
+    print('---------------------------');
+
     if (response.statusCode >= 400) {
       throw Exception('Errore server (${response.statusCode}):\n${response.body}');
     }
@@ -146,7 +152,9 @@ class AuthApi {
       payload = jsonDecode(response.body);
     } catch (e) {
       print('====== ERRORE DAL SERVER PHP ======');
-      print(response.body);
+      print('Status: ${response.statusCode}');
+      print('Headers: ${response.headers}');
+      print('Body: ${response.body}');
       print('===================================');
       throw Exception('Il server PHP ha restituito un errore HTML. Controlla la console per i dettagli.');
     }
