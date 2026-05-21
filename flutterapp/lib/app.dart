@@ -14,7 +14,7 @@ class CrimsonChatApp extends StatelessWidget {
         final crimson = Color(AppPreferences.instance.themeColorValue);
         return MaterialApp(
           debugShowCheckedModeBanner: false,
-          title: 'Crimson Chat',
+          title: 'Quice',
           theme: ThemeData(
             colorScheme: ColorScheme.fromSeed(
               seedColor: crimson,
