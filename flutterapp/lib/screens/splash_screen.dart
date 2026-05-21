@@ -43,7 +43,7 @@ class _SplashScreenState extends State<SplashScreen> {
             ),
             SizedBox(height: 16),
             Text(
-              'Crimson Chat',
+              'Quice',
               style: TextStyle(
                 color: Colors.white,
                 fontSize: 30,
