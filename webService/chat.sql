@@ -27,27 +27,48 @@ CREATE TABLE utenti (
 
 CREATE TABLE chat (
     IDchat BIGINT UNSIGNED PRIMARY KEY,
-    utente1 BIGINT UNSIGNED,
-    utente2 BIGINT UNSIGNED,
+    is_group TINYINT(1) NOT NULL DEFAULT 0,
+    name VARCHAR(100) BINARY NULL,
+    created_by BIGINT UNSIGNED NULL,
+    avatar_url VARCHAR(500) BINARY NULL,
+    utente1 BIGINT UNSIGNED NULL,
+    utente2 BIGINT UNSIGNED NULL,
     CONSTRAINT FK_UTENTE1 FOREIGN KEY (utente1) REFERENCES utenti(IDutente),
     CONSTRAINT FK_UTENTE2 FOREIGN KEY (utente2) REFERENCES utenti(IDutente),
+    CONSTRAINT FK_CHAT_CREATOR FOREIGN KEY (created_by) REFERENCES utenti(IDutente),
     CONSTRAINT CHK_IDCHAT_10_DIGITS CHECK (IDchat BETWEEN 1000000000 AND 9999999999)
+);
+
+CREATE TABLE chat_members (
+    chat_id BIGINT UNSIGNED NOT NULL,
+    user_id BIGINT UNSIGNED NOT NULL,
+    joined_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    role ENUM('admin','member') NOT NULL DEFAULT 'member',
+    PRIMARY KEY (chat_id, user_id),
+    CONSTRAINT FK_CM_CHAT FOREIGN KEY (chat_id) REFERENCES chat(IDchat) ON DELETE CASCADE,
+    CONSTRAINT FK_CM_USER FOREIGN KEY (user_id) REFERENCES utenti(IDutente) ON DELETE CASCADE
 );
 
 CREATE TABLE messaggi (
     id INT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
     textmessage VARCHAR(15000) NOT NULL,
     senderID BIGINT UNSIGNED,
-    reciverID BIGINT UNSIGNED,
+    reciverID BIGINT UNSIGNED NULL,
+    chat_id BIGINT UNSIGNED NULL,
+    file_attachment_id BIGINT UNSIGNED NULL,
     timenow DATETIME NOT NULL,
     is_certified TINYINT(1) NOT NULL DEFAULT 0,
     message_signature TEXT BINARY NULL,
     e2ee_metadata JSON NULL,
     CONSTRAINT FK_SENDER FOREIGN KEY (senderID) REFERENCES utenti(IDutente),
     CONSTRAINT FK_RECEIVER FOREIGN KEY (reciverID) REFERENCES utenti(IDutente),
+    CONSTRAINT FK_MSG_CHAT FOREIGN KEY (chat_id) REFERENCES chat(IDchat) ON DELETE CASCADE,
+    CONSTRAINT FK_MSG_FILE FOREIGN KEY (file_attachment_id) REFERENCES shared_files(id) ON DELETE SET NULL,
     CONSTRAINT CHK_SENDER_10_DIGITS CHECK (senderID BETWEEN 1000000000 AND 9999999999),
     CONSTRAINT CHK_RECEIVER_10_DIGITS CHECK (reciverID BETWEEN 1000000000 AND 9999999999)
 );
+
+CREATE INDEX idx_messaggi_chat ON messaggi(chat_id);
 
 CREATE TABLE otp_two_factor_codes (
     id BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
@@ -71,10 +92,14 @@ CREATE TABLE shared_files (
     source_url VARCHAR(1000) BINARY NULL,
     preview_type ENUM('audio', 'image', 'video', 'gif', 'pdf', 'link', 'file') NOT NULL DEFAULT 'file',
     preview_payload JSON NULL,
+    message_id BIGINT UNSIGNED NULL,
     bypassed_limit TINYINT(1) NOT NULL DEFAULT 0,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT FK_SHARED_FILE_OWNER FOREIGN KEY (owner_user_id) REFERENCES utenti(IDutente)
+    CONSTRAINT FK_SHARED_FILE_OWNER FOREIGN KEY (owner_user_id) REFERENCES utenti(IDutente),
+    CONSTRAINT FK_SF_MESSAGE FOREIGN KEY (message_id) REFERENCES messaggi(id) ON DELETE SET NULL
 );
+
+CREATE INDEX idx_shared_files_message ON shared_files(message_id);
 
 INSERT INTO utenti (IDutente, nome, cognome, nickname, email, password_hash, dataCreazione) VALUES
     (1234567890, 'Mario', 'Rossi', 'mario.rossi', 'mario.rossi@test.com', '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', '2024-01-10'),
