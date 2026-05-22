@@ -1,0 +1,12 @@
+{
+	"InstallScripts" : 
+	[
+		"C:/Users/crist/Desktop/g/projectcapolavoro/build/cmake_install.cmake",
+		"C:/Users/crist/Desktop/g/projectcapolavoro/build/flutter/cmake_install.cmake",
+		"C:/Users/crist/Desktop/g/projectcapolavoro/build/runner/cmake_install.cmake",
+		"C:/Users/crist/Desktop/g/projectcapolavoro/build/plugins/nsd_windows/cmake_install.cmake",
+		"C:/Users/crist/Desktop/g/projectcapolavoro/build/plugins/jni/cmake_install.cmake",
+		"C:/Users/crist/Desktop/g/projectcapolavoro/build/plugins/jni/shared/cmake_install.cmake"
+	],
+	"Parallel" : false
+}
