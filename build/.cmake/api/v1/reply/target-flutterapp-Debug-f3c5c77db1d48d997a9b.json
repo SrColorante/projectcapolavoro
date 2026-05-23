@@ -385,16 +385,16 @@
 	"dependencies" : 
 	[
 		{
-			"backtrace" : 8,
-			"id" : "nsd_windows_plugin::@fd7bfbd99eb2a30ebb4c"
-		},
-		{
 			"backtrace" : 4,
 			"id" : "flutter_wrapper_app::@2bb09fbb03a373b2cb34"
 		},
 		{
 			"backtrace" : 11,
 			"id" : "flutter_assemble::@2bb09fbb03a373b2cb34"
+		},
+		{
+			"backtrace" : 8,
+			"id" : "nsd_windows_plugin::@fd7bfbd99eb2a30ebb4c"
 		},
 		{
 			"id" : "ZERO_CHECK::@6890427a1f51a3e7e1df"

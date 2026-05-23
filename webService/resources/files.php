@@ -55,6 +55,7 @@ function build_preview_payload(
     return $payload;
 }
 
+$method = $_SERVER['REQUEST_METHOD'];
 if ($method === 'POST') {
     // Se c'è un file upload multipart ($_FILES), gestiscilo direttamente
     if (!empty($_FILES['file'])) {
