@@ -9,6 +9,7 @@ function generate_ten_digit_id(): string {
     return strval(random_int(1000000000, 9999999999));
 }
 
+$method = $_SERVER['REQUEST_METHOD'];
 if ($method === 'GET') {
     // Restituisce le chat (1-to-1 e gruppi) aperte dall'utente
     $stmt = $pdo->prepare("

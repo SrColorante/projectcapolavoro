@@ -92,7 +92,7 @@ CREATE TABLE shared_files (
     source_url VARCHAR(1000) BINARY NULL,
     preview_type ENUM('audio', 'image', 'video', 'gif', 'pdf', 'link', 'file') NOT NULL DEFAULT 'file',
     preview_payload JSON NULL,
-    message_id BIGINT UNSIGNED NULL,
+    message_id INT UNSIGNED NULL,
     bypassed_limit TINYINT(1) NOT NULL DEFAULT 0,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT FK_SHARED_FILE_OWNER FOREIGN KEY (owner_user_id) REFERENCES utenti(IDutente),

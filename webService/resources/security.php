@@ -1,4 +1,5 @@
 <?php
+$method = $_SERVER['REQUEST_METHOD'];
 if ($method !== 'POST') {
     http_response_code(405);
     echo json_encode(["error" => "Metodo non consentito"]);

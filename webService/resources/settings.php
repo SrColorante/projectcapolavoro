@@ -5,6 +5,7 @@ if (!$current_user_id) {
     exit;
 }
 
+$method = $_SERVER['REQUEST_METHOD'];
 if ($method === 'GET') {
     $stmt = $pdo->prepare("SELECT preferred_language, nickname, profile_bio, profile_photo_url, profile_audio_url, profile_audio_duration_seconds
                            FROM utenti
