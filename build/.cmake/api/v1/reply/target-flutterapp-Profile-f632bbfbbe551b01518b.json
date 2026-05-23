@@ -2,10 +2,10 @@
 	"artifacts" : 
 	[
 		{
-			"path" : "runner/Release/flutterapp.exe"
+			"path" : "runner/Profile/flutterapp.exe"
 		},
 		{
-			"path" : "runner/Release/flutterapp.pdb"
+			"path" : "runner/Profile/flutterapp.pdb"
 		}
 	],
 	"backtrace" : 1,
@@ -371,16 +371,16 @@
 	"dependencies" : 
 	[
 		{
-			"backtrace" : 8,
-			"id" : "nsd_windows_plugin::@fd7bfbd99eb2a30ebb4c"
-		},
-		{
 			"backtrace" : 4,
 			"id" : "flutter_wrapper_app::@2bb09fbb03a373b2cb34"
 		},
 		{
 			"backtrace" : 11,
 			"id" : "flutter_assemble::@2bb09fbb03a373b2cb34"
+		},
+		{
+			"backtrace" : 8,
+			"id" : "nsd_windows_plugin::@fd7bfbd99eb2a30ebb4c"
 		},
 		{
 			"id" : "ZERO_CHECK::@6890427a1f51a3e7e1df"
@@ -393,7 +393,7 @@
 		[
 			{
 				"backtrace" : 3,
-				"path" : "C:/Users/crist/Desktop/g/projectcapolavoro/build/runner/Release"
+				"path" : "C:/Users/crist/Desktop/g/projectcapolavoro/build/runner/Profile"
 			}
 		],
 		"prefix" : 
@@ -419,7 +419,7 @@
 			},
 			{
 				"backtrace" : 4,
-				"fragment" : "..\\flutter\\Release\\flutter_wrapper_app.lib",
+				"fragment" : "..\\flutter\\Profile\\flutter_wrapper_app.lib",
 				"role" : "libraries"
 			},
 			{
@@ -429,7 +429,7 @@
 			},
 			{
 				"backtrace" : 8,
-				"fragment" : "..\\plugins\\nsd_windows\\Release\\nsd_windows_plugin.lib",
+				"fragment" : "..\\plugins\\nsd_windows\\Profile\\nsd_windows_plugin.lib",
 				"role" : "libraries"
 			},
 			{

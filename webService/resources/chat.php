@@ -5,6 +5,7 @@ if (!$current_user_id) {
     exit;
 }
 
+$method = $_SERVER['REQUEST_METHOD'];
 if ($method === 'GET') {
     // Riceve i messaggi della chat
     $chat_id = $_GET['chat_id'] ?? null;

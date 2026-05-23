@@ -37,7 +37,7 @@ ALTER TABLE messaggi
 
 -- 4. Alter 'shared_files' to optionally link to a message
 ALTER TABLE shared_files
-    ADD COLUMN message_id BIGINT UNSIGNED NULL,
+    ADD COLUMN message_id INT UNSIGNED NULL,
     ADD CONSTRAINT FK_SF_MESSAGE FOREIGN KEY (message_id) REFERENCES messaggi(id) ON DELETE SET NULL;
 
 -- Add index on message_id for fast lookups
