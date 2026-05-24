@@ -44,7 +44,27 @@ endif()
 
 if(NOT CMAKE_INSTALL_LOCAL_ONLY)
   # Include the install script for the subdirectory.
+  include("C:/Users/crist/Desktop/g/projectcapolavoro/build/plugins/audioplayers_windows/cmake_install.cmake")
+endif()
+
+if(NOT CMAKE_INSTALL_LOCAL_ONLY)
+  # Include the install script for the subdirectory.
+  include("C:/Users/crist/Desktop/g/projectcapolavoro/build/plugins/file_selector_windows/cmake_install.cmake")
+endif()
+
+if(NOT CMAKE_INSTALL_LOCAL_ONLY)
+  # Include the install script for the subdirectory.
   include("C:/Users/crist/Desktop/g/projectcapolavoro/build/plugins/nsd_windows/cmake_install.cmake")
+endif()
+
+if(NOT CMAKE_INSTALL_LOCAL_ONLY)
+  # Include the install script for the subdirectory.
+  include("C:/Users/crist/Desktop/g/projectcapolavoro/build/plugins/record_windows/cmake_install.cmake")
+endif()
+
+if(NOT CMAKE_INSTALL_LOCAL_ONLY)
+  # Include the install script for the subdirectory.
+  include("C:/Users/crist/Desktop/g/projectcapolavoro/build/plugins/url_launcher_windows/cmake_install.cmake")
 endif()
 
 if(NOT CMAKE_INSTALL_LOCAL_ONLY)
@@ -157,7 +177,7 @@ endif()
 if(CMAKE_INSTALL_COMPONENT STREQUAL "Runtime" OR NOT CMAKE_INSTALL_COMPONENT)
   if(CMAKE_INSTALL_CONFIG_NAME MATCHES "^([Dd][Ee][Bb][Uu][Gg])$")
     list(APPEND CMAKE_ABSOLUTE_DESTINATION_FILES
-     "C:/Users/crist/Desktop/g/projectcapolavoro/build/runner/Debug/nsd_windows_plugin.dll;C:/Users/crist/Desktop/g/projectcapolavoro/build/runner/Debug/dartjni.dll")
+     "C:/Users/crist/Desktop/g/projectcapolavoro/build/runner/Debug/audioplayers_windows_plugin.dll;C:/Users/crist/Desktop/g/projectcapolavoro/build/runner/Debug/file_selector_windows_plugin.dll;C:/Users/crist/Desktop/g/projectcapolavoro/build/runner/Debug/nsd_windows_plugin.dll;C:/Users/crist/Desktop/g/projectcapolavoro/build/runner/Debug/record_windows_plugin.dll;C:/Users/crist/Desktop/g/projectcapolavoro/build/runner/Debug/url_launcher_windows_plugin.dll;C:/Users/crist/Desktop/g/projectcapolavoro/build/runner/Debug/dartjni.dll")
     if(CMAKE_WARN_ON_ABSOLUTE_INSTALL_DESTINATION)
       message(WARNING "ABSOLUTE path INSTALL DESTINATION : ${CMAKE_ABSOLUTE_DESTINATION_FILES}")
     endif()
@@ -165,12 +185,16 @@ if(CMAKE_INSTALL_COMPONENT STREQUAL "Runtime" OR NOT CMAKE_INSTALL_COMPONENT)
       message(FATAL_ERROR "ABSOLUTE path INSTALL DESTINATION forbidden (by caller): ${CMAKE_ABSOLUTE_DESTINATION_FILES}")
     endif()
     file(INSTALL DESTINATION "C:/Users/crist/Desktop/g/projectcapolavoro/build/runner/Debug" TYPE FILE FILES
+      "C:/Users/crist/Desktop/g/projectcapolavoro/build/plugins/audioplayers_windows/Debug/audioplayers_windows_plugin.dll"
+      "C:/Users/crist/Desktop/g/projectcapolavoro/build/plugins/file_selector_windows/Debug/file_selector_windows_plugin.dll"
       "C:/Users/crist/Desktop/g/projectcapolavoro/build/plugins/nsd_windows/Debug/nsd_windows_plugin.dll"
+      "C:/Users/crist/Desktop/g/projectcapolavoro/build/plugins/record_windows/Debug/record_windows_plugin.dll"
+      "C:/Users/crist/Desktop/g/projectcapolavoro/build/plugins/url_launcher_windows/Debug/url_launcher_windows_plugin.dll"
       "C:/Users/crist/Desktop/g/projectcapolavoro/build/plugins/jni/shared/Debug/dartjni.dll"
       )
   elseif(CMAKE_INSTALL_CONFIG_NAME MATCHES "^([Pp][Rr][Oo][Ff][Ii][Ll][Ee])$")
     list(APPEND CMAKE_ABSOLUTE_DESTINATION_FILES
-     "C:/Users/crist/Desktop/g/projectcapolavoro/build/runner/Profile/nsd_windows_plugin.dll;C:/Users/crist/Desktop/g/projectcapolavoro/build/runner/Profile/dartjni.dll")
+     "C:/Users/crist/Desktop/g/projectcapolavoro/build/runner/Profile/audioplayers_windows_plugin.dll;C:/Users/crist/Desktop/g/projectcapolavoro/build/runner/Profile/file_selector_windows_plugin.dll;C:/Users/crist/Desktop/g/projectcapolavoro/build/runner/Profile/nsd_windows_plugin.dll;C:/Users/crist/Desktop/g/projectcapolavoro/build/runner/Profile/record_windows_plugin.dll;C:/Users/crist/Desktop/g/projectcapolavoro/build/runner/Profile/url_launcher_windows_plugin.dll;C:/Users/crist/Desktop/g/projectcapolavoro/build/runner/Profile/dartjni.dll")
     if(CMAKE_WARN_ON_ABSOLUTE_INSTALL_DESTINATION)
       message(WARNING "ABSOLUTE path INSTALL DESTINATION : ${CMAKE_ABSOLUTE_DESTINATION_FILES}")
     endif()
@@ -178,12 +202,16 @@ if(CMAKE_INSTALL_COMPONENT STREQUAL "Runtime" OR NOT CMAKE_INSTALL_COMPONENT)
       message(FATAL_ERROR "ABSOLUTE path INSTALL DESTINATION forbidden (by caller): ${CMAKE_ABSOLUTE_DESTINATION_FILES}")
     endif()
     file(INSTALL DESTINATION "C:/Users/crist/Desktop/g/projectcapolavoro/build/runner/Profile" TYPE FILE FILES
+      "C:/Users/crist/Desktop/g/projectcapolavoro/build/plugins/audioplayers_windows/Profile/audioplayers_windows_plugin.dll"
+      "C:/Users/crist/Desktop/g/projectcapolavoro/build/plugins/file_selector_windows/Profile/file_selector_windows_plugin.dll"
       "C:/Users/crist/Desktop/g/projectcapolavoro/build/plugins/nsd_windows/Profile/nsd_windows_plugin.dll"
+      "C:/Users/crist/Desktop/g/projectcapolavoro/build/plugins/record_windows/Profile/record_windows_plugin.dll"
+      "C:/Users/crist/Desktop/g/projectcapolavoro/build/plugins/url_launcher_windows/Profile/url_launcher_windows_plugin.dll"
       "C:/Users/crist/Desktop/g/projectcapolavoro/build/plugins/jni/shared/Profile/dartjni.dll"
       )
   elseif(CMAKE_INSTALL_CONFIG_NAME MATCHES "^([Rr][Ee][Ll][Ee][Aa][Ss][Ee])$")
     list(APPEND CMAKE_ABSOLUTE_DESTINATION_FILES
-     "C:/Users/crist/Desktop/g/projectcapolavoro/build/runner/Release/nsd_windows_plugin.dll;C:/Users/crist/Desktop/g/projectcapolavoro/build/runner/Release/dartjni.dll")
+     "C:/Users/crist/Desktop/g/projectcapolavoro/build/runner/Release/audioplayers_windows_plugin.dll;C:/Users/crist/Desktop/g/projectcapolavoro/build/runner/Release/file_selector_windows_plugin.dll;C:/Users/crist/Desktop/g/projectcapolavoro/build/runner/Release/nsd_windows_plugin.dll;C:/Users/crist/Desktop/g/projectcapolavoro/build/runner/Release/record_windows_plugin.dll;C:/Users/crist/Desktop/g/projectcapolavoro/build/runner/Release/url_launcher_windows_plugin.dll;C:/Users/crist/Desktop/g/projectcapolavoro/build/runner/Release/dartjni.dll")
     if(CMAKE_WARN_ON_ABSOLUTE_INSTALL_DESTINATION)
       message(WARNING "ABSOLUTE path INSTALL DESTINATION : ${CMAKE_ABSOLUTE_DESTINATION_FILES}")
     endif()
@@ -191,7 +219,11 @@ if(CMAKE_INSTALL_COMPONENT STREQUAL "Runtime" OR NOT CMAKE_INSTALL_COMPONENT)
       message(FATAL_ERROR "ABSOLUTE path INSTALL DESTINATION forbidden (by caller): ${CMAKE_ABSOLUTE_DESTINATION_FILES}")
     endif()
     file(INSTALL DESTINATION "C:/Users/crist/Desktop/g/projectcapolavoro/build/runner/Release" TYPE FILE FILES
+      "C:/Users/crist/Desktop/g/projectcapolavoro/build/plugins/audioplayers_windows/Release/audioplayers_windows_plugin.dll"
+      "C:/Users/crist/Desktop/g/projectcapolavoro/build/plugins/file_selector_windows/Release/file_selector_windows_plugin.dll"
       "C:/Users/crist/Desktop/g/projectcapolavoro/build/plugins/nsd_windows/Release/nsd_windows_plugin.dll"
+      "C:/Users/crist/Desktop/g/projectcapolavoro/build/plugins/record_windows/Release/record_windows_plugin.dll"
+      "C:/Users/crist/Desktop/g/projectcapolavoro/build/plugins/url_launcher_windows/Release/url_launcher_windows_plugin.dll"
       "C:/Users/crist/Desktop/g/projectcapolavoro/build/plugins/jni/shared/Release/dartjni.dll"
       )
   endif()

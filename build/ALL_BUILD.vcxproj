@@ -141,6 +141,14 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
       <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
       <CopyToOutputDirectory>Never</CopyToOutputDirectory>
     </ProjectReference>
+    <ProjectReference Include="C:\Users\crist\Desktop\g\projectcapolavoro\build\plugins\audioplayers_windows\audioplayers_windows_plugin.vcxproj">
+      <Project>{74EE9036-8DCF-3BA5-B474-A5A470E908BC}</Project>
+      <Name>audioplayers_windows_plugin</Name>
+    </ProjectReference>
+    <ProjectReference Include="C:\Users\crist\Desktop\g\projectcapolavoro\build\plugins\file_selector_windows\file_selector_windows_plugin.vcxproj">
+      <Project>{69A11CA1-B74D-31F0-A433-050C65771587}</Project>
+      <Name>file_selector_windows_plugin</Name>
+    </ProjectReference>
     <ProjectReference Include="C:\Users\crist\Desktop\g\projectcapolavoro\build\flutter\flutter_wrapper_app.vcxproj">
       <Project>{CF896613-7FCE-3F3C-A1A0-5BAC21C8F3CE}</Project>
       <Name>flutter_wrapper_app</Name>
@@ -160,6 +168,14 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
     <ProjectReference Include="C:\Users\crist\Desktop\g\projectcapolavoro\build\plugins\nsd_windows\nsd_windows_plugin.vcxproj">
       <Project>{55E98ACC-60D7-3C6D-B193-F97DAA294EBF}</Project>
       <Name>nsd_windows_plugin</Name>
+    </ProjectReference>
+    <ProjectReference Include="C:\Users\crist\Desktop\g\projectcapolavoro\build\plugins\record_windows\record_windows_plugin.vcxproj">
+      <Project>{014ACAAC-7B8C-3C81-8CD3-8F4D05167CB8}</Project>
+      <Name>record_windows_plugin</Name>
+    </ProjectReference>
+    <ProjectReference Include="C:\Users\crist\Desktop\g\projectcapolavoro\build\plugins\url_launcher_windows\url_launcher_windows_plugin.vcxproj">
+      <Project>{4FCD8593-5536-3DF1-B8E7-0316E4BD0FF4}</Project>
+      <Name>url_launcher_windows_plugin</Name>
     </ProjectReference>
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
