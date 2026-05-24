@@ -24,7 +24,15 @@ function resolve_preview_type(string $mime_type, string $file_name, ?string $sou
     if ($normalized_mime === 'image/gif' || str_ends_with($normalized_name, '.gif')) {
         return 'gif';
     }
-    if (str_starts_with($normalized_mime, 'image/')) {
+    if (
+        str_starts_with($normalized_mime, 'image/') ||
+        str_ends_with($normalized_name, '.png') ||
+        str_ends_with($normalized_name, '.jpg') ||
+        str_ends_with($normalized_name, '.jpeg') ||
+        str_ends_with($normalized_name, '.webp') ||
+        str_ends_with($normalized_name, '.heic') ||
+        str_ends_with($normalized_name, '.bmp')
+    ) {
         return 'image';
     }
     if (str_starts_with($normalized_mime, 'video/')) {
@@ -106,9 +114,8 @@ if ($method === 'POST') {
             exit;
         }
 
-        // Costruisci URL pubblico relativo
-        $base_url = dirname($_SERVER['REQUEST_URI']);
-        $source_url = $base_url . '/uploads/' . $safe_name;
+        // Costruisci URL pubblico relativo — path pulito per serve_file
+        $source_url = '/uploads/' . $safe_name;
 
         $preview_type = resolve_preview_type($mime_type, $file_name, null);
         $preview_payload = build_preview_payload($preview_type, $file_name, $mime_type, $source_url);

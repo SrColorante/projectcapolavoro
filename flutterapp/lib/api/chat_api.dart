@@ -52,6 +52,16 @@ class ChatApi {
         final chatId = chat['IDchat'].toString();
         final isGroup = int.tryParse(chat['is_group']?.toString() ?? '0') == 1;
 
+        final lastMsgText = chat['last_message']?.toString();
+        final lastMsgSender = chat['last_message_sender']?.toString();
+        final chatMessages = <ChatMessage>[];
+        if (lastMsgText != null && lastMsgSender != null) {
+          chatMessages.add(ChatMessage(
+            text: lastMsgText,
+            senderId: lastMsgSender,
+          ));
+        }
+
         if (isGroup) {
           final name = chat['name']?.toString() ?? 'Gruppo $chatId';
           final createdBy = chat['created_by']?.toString();
@@ -66,19 +76,26 @@ class ChatApi {
             createdBy: createdBy,
             avatarUrl: avatarUrl,
             members: members,
-            messages: <ChatMessage>[],
+            messages: chatMessages,
           );
         } else {
           final userOne = chat['utente1']?.toString() ?? '';
           final userTwo = chat['utente2']?.toString() ?? '';
           final participantId = userOne == userId ? userTwo : userOne;
+          final isSelf = participantId == userId;
+          
+          final otherNickname = chat['other_user_nickname']?.toString();
+          final otherName = chat['other_user_name']?.toString();
+          final displayName = (otherNickname != null && otherNickname.isNotEmpty)
+              ? otherNickname
+              : ((otherName != null && otherName.isNotEmpty) ? otherName : 'Chat $participantId');
           
           return ChatThread(
             id: chatId,
-            title: 'Chat $participantId',
+            title: isSelf ? 'Note personali (Tu)' : displayName,
             participantId: participantId,
             isGroup: false,
-            messages: <ChatMessage>[],
+            messages: chatMessages,
           );
         }
       }).toList(growable: false);
@@ -102,7 +119,7 @@ class ChatApi {
     }
   }
 
-  Future<List<ChatMessage>> fetchMessages({
+  Future<MessagesFetchResult> fetchMessages({
     required String userId,
     required String chatId,
   }) async {
@@ -123,6 +140,8 @@ class ChatApi {
           .timeout(_requestTimeout);
       final payload = _decodePayload(response);
       final data = payload['data'] as List<dynamic>? ?? <dynamic>[];
+      final typingData = payload['typing'] as List<dynamic>? ?? <dynamic>[];
+      
       final remoteMessages = data.map((item) {
         final message = Map<String, dynamic>.from(item as Map);
         
@@ -131,6 +150,13 @@ class ChatApi {
         final mimeType = message['mime_type']?.toString();
         final sourceUrl = message['source_url']?.toString();
         final previewType = message['preview_type']?.toString();
+        final msgId = message['id']?.toString();
+        final msgStatus = message['status']?.toString() ?? 'sent';
+        final rawTime = message['timenow']?.toString();
+        DateTime? timestamp;
+        if (rawTime != null) {
+          timestamp = DateTime.tryParse(rawTime)?.toLocal();
+        }
         
         Map<String, dynamic>? previewPayload;
         if (message['preview_payload'] != null) {
@@ -144,6 +170,7 @@ class ChatApi {
         }
 
         return ChatMessage(
+          id: msgId,
           text: message['textmessage']?.toString() ?? '',
           senderId: message['senderID']?.toString() ?? '',
           canonicalText: message['textmessage']?.toString() ?? '',
@@ -153,6 +180,8 @@ class ChatApi {
           sourceUrl: sourceUrl,
           previewType: previewType,
           previewPayload: previewPayload,
+          status: msgStatus,
+          timestamp: timestamp,
         );
       }).toList(growable: false);
       
@@ -161,7 +190,8 @@ class ChatApi {
         chatId: chatId,
         remoteMessages: remoteMessages,
       );
-      return _localizeMessages(mergedMessages);
+      final localized = await _localizeMessages(mergedMessages);
+      return MessagesFetchResult(messages: localized, typingUsers: typingData);
     } catch (error) {
       if (!_isConnectivityError(error)) {
         rethrow;
@@ -170,7 +200,37 @@ class ChatApi {
         userId: userId,
         chatId: chatId,
       );
-      return _localizeMessages(localMessages);
+      final localized = await _localizeMessages(localMessages);
+      return MessagesFetchResult(messages: localized, typingUsers: const []);
+    }
+  }
+
+  Future<void> updateTypingStatus({
+    required String userId,
+    required String chatId,
+    required String status,
+  }) async {
+    await _initializeOfflineFirst(userId);
+    final uri = Uri.parse('$_baseUrl/chat').replace(
+      queryParameters: {'user_id': userId},
+    );
+    try {
+      final body = jsonEncode({
+        'chat_id': chatId,
+        'typing_status': status,
+      });
+      await _client.post(
+        uri,
+        headers: AppRequestSigner.buildSignedHeaders(
+          method: 'POST',
+          uri: uri,
+          body: body,
+          headers: const {'Content-Type': 'application/json'},
+        ),
+        body: body,
+      ).timeout(const Duration(seconds: 4));
+    } catch (_) {
+      // Ignora silenziosamente
     }
   }
 
@@ -419,6 +479,7 @@ class ChatApi {
       );
       localizedMessages.add(
         ChatMessage(
+          id: message.id,
           text: localizedText,
           senderId: message.senderId,
           canonicalText: message.canonicalText,
@@ -428,6 +489,8 @@ class ChatApi {
           sourceUrl: message.sourceUrl,
           previewType: message.previewType,
           previewPayload: message.previewPayload,
+          status: message.status,
+          timestamp: message.timestamp,
         ),
       );
     }
@@ -460,4 +523,10 @@ class ChatApi {
       error is TimeoutException ||
       error is SocketException ||
       error is http.ClientException;
+}
+
+class MessagesFetchResult {
+  final List<ChatMessage> messages;
+  final List<dynamic> typingUsers;
+  MessagesFetchResult({required this.messages, required this.typingUsers});
 }

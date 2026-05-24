@@ -36,6 +36,44 @@ if ($method === 'GET') {
         exit;
     }
 
+    // Segna i messaggi in questa chat inviati da altri come 'read'
+    try {
+        $stmtRead = $pdo->prepare("
+            UPDATE messaggi
+            SET status = 'read'
+            WHERE chat_id = ? AND senderID != ? AND status != 'read'
+        ");
+        $stmtRead->execute([$chat_id, $current_user_id]);
+
+        $stmtReadLegacy = $pdo->prepare("
+            UPDATE messaggi
+            SET status = 'read'
+            WHERE chat_id IS NULL 
+              AND ((senderID = (SELECT utente1 FROM chat WHERE IDchat = ?) AND reciverID = (SELECT utente2 FROM chat WHERE IDchat = ?))
+                OR (senderID = (SELECT utente2 FROM chat WHERE IDchat = ?) AND reciverID = (SELECT utente1 FROM chat WHERE IDchat = ?)))
+              AND senderID != ?
+              AND status != 'read'
+        ");
+        $stmtReadLegacy->execute([$chat_id, $chat_id, $chat_id, $chat_id, $current_user_id]);
+    } catch (\Exception $e) {
+        // Silenzioso
+    }
+
+    // Recupera lo stato di chi sta scrivendo o registrando audio (negli ultimi 6 secondi)
+    $typing = [];
+    try {
+        $stmtTyping = $pdo->prepare("
+            SELECT ts.user_id, ts.status, u.nickname, u.nome
+            FROM chat_typing_status ts
+            JOIN utenti u ON ts.user_id = u.IDutente
+            WHERE ts.chat_id = ? AND ts.status != 'idle' AND ts.updated_at >= NOW() - INTERVAL 6 SECOND AND ts.user_id != ?
+        ");
+        $stmtTyping->execute([$chat_id, $current_user_id]);
+        $typing = $stmtTyping->fetchAll();
+    } catch (\Exception $e) {
+        // Silenzioso
+    }
+
     // Recupera i messaggi per chat_id (nuovo) oppure per sender/receiver (retrocompatibilità)
     $stmt = $pdo->prepare("
         SELECT m.*, sf.file_name, sf.mime_type, sf.source_url, sf.preview_type, sf.preview_payload
@@ -71,15 +109,40 @@ if ($method === 'GET') {
     }
     unset($msg);
 
-    echo json_encode(["success" => true, "data" => $messaggi]);
+    echo json_encode(["success" => true, "data" => $messaggi, "typing" => $typing]);
 
 } elseif ($method === 'POST') {
+    // 1. Gestione aggiornamento typing status se fornito
+    if (isset($input['typing_status'])) {
+        $chat_id = $input['chat_id'] ?? null;
+        $status = $input['typing_status']; // 'typing', 'recording', 'idle'
+        if (!$chat_id) {
+            http_response_code(400);
+            echo json_encode(["error" => "Specificare chat_id"]);
+            exit;
+        }
+        
+        try {
+            $stmt = $pdo->prepare("
+                INSERT INTO chat_typing_status (chat_id, user_id, status, updated_at)
+                VALUES (?, ?, ?, NOW())
+                ON DUPLICATE KEY UPDATE status = VALUES(status), updated_at = NOW()
+            ");
+            $stmt->execute([$chat_id, $current_user_id, $status]);
+            echo json_encode(["success" => true, "message" => "Status aggiornato"]);
+        } catch (\Exception $e) {
+            http_response_code(500);
+            echo json_encode(["error" => "Errore aggiornamento status: " . $e->getMessage()]);
+        }
+        exit;
+    }
+
     // Inserisce un nuovo messaggio
     $text = $input['textmessage'] ?? '';
     $encrypted_payload = $input['encrypted_payload'] ?? null;
     $message_signature = trim($input['message_signature'] ?? '');
     $is_certified = ($input['is_certified'] ?? false) ? 1 : 0;
-    $receiver_id = $input['reciverID'] ?? null;
+    $receiver_id = isset($input['reciverID']) ? str_replace(' ', '', trim(strval($input['reciverID']))) : null;
     $chat_id = $input['chat_id'] ?? null;
     $file_attachment_id = $input['file_attachment_id'] ?? null;
 
@@ -115,7 +178,7 @@ if ($method === 'GET') {
             exit;
         }
     } elseif ($receiver_id) {
-        if (!is_ten_digit_id(strval($receiver_id))) {
+        if (!is_valid_phone_id(strval($receiver_id))) {
             http_response_code(400);
             echo json_encode(["error" => "reciverID deve essere numerico e di 10 cifre"]);
             exit;

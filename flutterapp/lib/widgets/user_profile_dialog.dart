@@ -1,19 +1,82 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:audioplayers/audioplayers.dart';
 
 import '../api/auth_api.dart';
 import '../models/user_profile.dart';
+import '../services/app_preferences.dart';
 
-class UserProfileDialog extends StatefulWidget {
+class UserProfileDialog extends StatelessWidget {
   const UserProfileDialog({super.key, required this.userId});
   final String userId;
 
+  static void showProfile(BuildContext context, String userId) {
+    final isMobile = Platform.isAndroid || Platform.isIOS;
+    if (isMobile) {
+      showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Colors.transparent,
+        builder: (context) {
+          final isDark = Theme.of(context).brightness == Brightness.dark;
+          return Container(
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF101012) : const Color(0xFFF6F6F9),
+              borderRadius: const BorderRadius.only(
+                topLeft: Radius.circular(24),
+                topRight: Radius.circular(24),
+              ),
+            ),
+            child: SafeArea(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(24, 24, 24, 16),
+                child: UserProfileDetailContent(
+                  userId: userId,
+                  onClose: () => Navigator.of(context).pop(),
+                ),
+              ),
+            ),
+          );
+        },
+      );
+    } else {
+      showDialog<void>(
+        context: context,
+        builder: (_) => UserProfileDialog(userId: userId),
+      );
+    }
+  }
+
   @override
-  State<UserProfileDialog> createState() => _UserProfileDialogState();
+  Widget build(BuildContext context) {
+    final themeColor = Color(AppPreferences.instance.themeColorValue);
+    return AlertDialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+      content: SingleChildScrollView(
+        child: UserProfileDetailContent(userId: userId),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: Text('CHIUDI', style: TextStyle(fontWeight: FontWeight.bold, color: themeColor)),
+        ),
+      ],
+    );
+  }
 }
 
-class _UserProfileDialogState extends State<UserProfileDialog> {
+class UserProfileDetailContent extends StatefulWidget {
+  const UserProfileDetailContent({super.key, required this.userId, this.onClose});
+  final String userId;
+  final VoidCallback? onClose;
+
+  @override
+  State<UserProfileDetailContent> createState() => _UserProfileDetailContentState();
+}
+
+class _UserProfileDetailContentState extends State<UserProfileDetailContent> {
   UserProfile? _profile;
   bool _isLoading = true;
   String? _errorMessage;
@@ -67,7 +130,12 @@ class _UserProfileDialogState extends State<UserProfileDialog> {
     if (path.startsWith('http://') || path.startsWith('https://')) {
       return path;
     }
-    final base = AuthApi.baseUrl;
+    var base = AuthApi.baseUrl;
+    if (base.endsWith('/index.php')) {
+      base = base.substring(0, base.length - '/index.php'.length);
+    } else if (base.endsWith('/index')) {
+      base = base.substring(0, base.length - '/index'.length);
+    }
     var cleanPath = path;
     if (base.endsWith('/webService') && path.startsWith('/webService/')) {
       cleanPath = path.substring('/webService'.length);
@@ -96,43 +164,34 @@ class _UserProfileDialogState extends State<UserProfileDialog> {
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-      contentPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
-      content: _isLoading
-          ? const SizedBox(
-              height: 200,
-              child: Center(
-                child: CircularProgressIndicator(color: Color(0xFFDC143C)),
-              ),
-            )
-          : _errorMessage != null
-              ? SizedBox(
-                  height: 180,
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Icon(Icons.error_outline, color: Colors.red, size: 48),
-                      const SizedBox(height: 12),
-                      Text(
-                        _errorMessage!,
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(fontWeight: FontWeight.bold),
-                      ),
-                    ],
-                  ),
-                )
-              : _buildProfileContent(),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('CHIUDI', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFFDC143C))),
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final themeColor = Color(AppPreferences.instance.themeColorValue);
+    if (_isLoading) {
+      return SizedBox(
+        height: 200,
+        child: Center(
+          child: CircularProgressIndicator(color: themeColor),
         ),
-      ],
-    );
-  }
+      );
+    }
+    if (_errorMessage != null) {
+      return SizedBox(
+        height: 180,
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.error_outline, color: Colors.red, size: 48),
+            const SizedBox(height: 12),
+            Text(
+              _errorMessage!,
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontWeight: FontWeight.bold),
+            ),
+          ],
+        ),
+      );
+    }
 
-  Widget _buildProfileContent() {
     final profile = _profile!;
     final avatarUrl = profile.profilePhotoUrl != null ? _resolveUrl(profile.profilePhotoUrl!) : null;
 
@@ -143,7 +202,7 @@ class _UserProfileDialogState extends State<UserProfileDialog> {
         // Profile Photo
         CircleAvatar(
           radius: 50,
-          backgroundColor: Colors.grey[300],
+          backgroundColor: isDark ? Colors.white10 : Colors.grey[300],
           backgroundImage: avatarUrl != null ? NetworkImage(avatarUrl) : null,
           child: avatarUrl == null
               ? const Icon(Icons.person, size: 55, color: Colors.white)
@@ -190,16 +249,16 @@ class _UserProfileDialogState extends State<UserProfileDialog> {
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: Colors.grey[100],
+              color: isDark ? Colors.white.withOpacity(0.04) : Colors.grey[100],
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Colors.black12),
+              border: Border.all(color: isDark ? Colors.white24 : Colors.black12),
             ),
             child: Row(
               children: [
                 IconButton(
                   icon: Icon(
                     _isPlayingAudio ? Icons.pause_circle_filled : Icons.play_circle_filled,
-                    color: const Color(0xFFDC143C),
+                    color: themeColor,
                     size: 32,
                   ),
                   onPressed: _toggleAudio,
@@ -223,6 +282,23 @@ class _UserProfileDialogState extends State<UserProfileDialog> {
                   ),
                 ),
               ],
+            ),
+          ),
+        ],
+
+        if (widget.onClose != null) ...[
+          const SizedBox(height: 24),
+          SizedBox(
+            width: double.infinity,
+            height: 48,
+            child: ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: themeColor,
+                foregroundColor: themeColor.computeLuminance() > 0.5 ? Colors.black87 : Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+              onPressed: widget.onClose,
+              child: const Text('CHIUDI', style: TextStyle(fontWeight: FontWeight.bold)),
             ),
           ),
         ],

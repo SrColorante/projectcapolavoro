@@ -1,13 +1,17 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../api/chat_api.dart';
+import '../api/auth_api.dart';
 import '../models/chat_thread.dart';
 import '../models/user_profile.dart';
+import '../services/chat_service.dart';
 import '../services/api_exception_handler.dart';
 import '../services/app_preferences.dart';
 import '../services/message_translation_service.dart';
@@ -15,7 +19,21 @@ import '../widgets/message_attachment_preview.dart';
 import '../widgets/chat_background.dart';
 import 'group_create_screen.dart';
 import 'profile_screen.dart';
+import '../widgets/rich_color_board.dart';
+import 'onboarding_wizard.dart';
 import '../widgets/user_profile_dialog.dart';
+import '../widgets/contact_preview_bubble.dart';
+import 'mobile_chat_screen.dart';
+import 'mobile_settings_screen.dart';
+
+class SelectedFile {
+  final String path;
+  final String name;
+  final int size;
+  final bool isImage;
+  final bool isCode;
+  SelectedFile({required this.path, required this.name, required this.size, required this.isImage, this.isCode = false});
+}
 
 enum _RightPaneView { settings, chat, newChat }
 
@@ -50,15 +68,22 @@ class _HomeScreenState extends State<HomeScreen> {
   _RightPaneView _rightPaneView = _RightPaneView.settings;
 
   late final ChatApi _chatApi;
+  late final ChatService _chatService;
   late final TextEditingController _nicknameController;
   late final TextEditingController _newChatNameController;
   late final TextEditingController _newChatIdController;
   late final TextEditingController _messageController;
   late final List<LanguageOption> _languageOptions;
 
-  Color _appThemeColor = const Color(0xFFDC143C);
-  Color _newChatBackgroundColor = const Color(0xFFFFEEF1);
-  Color _newChatBubbleColor = const Color(0xFFDC143C);
+  Color _appThemeColor = const Color(0xFF1E1E1E);
+  Color _appBackgroundColor = const Color(0xFFFFFFFF);
+  String? _appBackgroundImagePath;
+  Color _newChatBackgroundColor = const Color(0xFFFFFFFF);
+  Color _newChatBubbleColor = const Color(0xFF1E1E1E);
+  String? _selectedFilePath;
+  String? _selectedFileName;
+  int? _selectedFileSize;
+  bool _selectedFileIsImage = false;
   String _preferredLanguageCode = AppPreferences.defaultLanguageCode;
   bool _isLoadingChats = false;
   bool _isLoadingMessages = false;
@@ -66,19 +91,88 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _isCreatingChat = false;
   bool _isSavingSettings = false;
   bool _isUploadingFile = false;
-  Color _currentChatBgColor = const Color(0xFFFFEEF1);
-  Color _currentChatBubbleColor = const Color(0xFFDC143C);
+  Color _currentChatBgColor = const Color(0xFFFFFFFF);
+  Color _currentChatBubbleColor = const Color(0xFF1E1E1E);
   String? _currentChatBgImagePath;
   bool _currentChatUseDefaultTheme = true;
   bool _notificationsVibrationEnabled = true;
   String? _notificationsRingtonePath;
   late UserProfile _currentProfile;
+  Set<String> _archivedChatIds = <String>{};
+  bool _showArchivedOnly = false;
+  Timer? _silentPollTimer;
+  bool _selectedFileIsCode = false;
+  Timer? _typingDebounceTimer;
+  String _lastSentTypingStatus = 'idle';
+  Duration _pollInterval = const Duration(seconds: 8);
+  Timer? _activityCooldownTimer;
+  bool _isRecording = false;
+  final Map<String, List<ChatMessage>> _sessionMessageCache = <String, List<ChatMessage>>{};
+  bool _sendOnEnter = true;
+
+  // Notifiers for reactive mobile screens
+  final selectedChatNotifier = ValueNotifier<ChatThread?>(null);
+  final isLoadingMessagesNotifier = ValueNotifier<bool>(false);
+  final isSendingMessageNotifier = ValueNotifier<bool>(false);
+  final isUploadingFileNotifier = ValueNotifier<bool>(false);
+  final selectedFileNotifier = ValueNotifier<SelectedFile?>(null);
+
+  final appThemeColorNotifier = ValueNotifier<Color>(const Color(0xFF1E1E1E));
+  final appBackgroundColorNotifier = ValueNotifier<Color>(const Color(0xFFFFFFFF));
+  final appBackgroundImageNotifier = ValueNotifier<String?>(null);
+  final preferredLanguageCodeNotifier = ValueNotifier<String>(AppPreferences.defaultLanguageCode);
+  final isSavingSettingsNotifier = ValueNotifier<bool>(false);
+  final notificationsVibrationNotifier = ValueNotifier<bool>(true);
+  final notificationsRingtoneNotifier = ValueNotifier<String?>(null);
+  late final ValueNotifier<UserProfile> currentProfileNotifier;
+
+  final currentChatBgColorNotifier = ValueNotifier<Color>(const Color(0xFFFFFFFF));
+  final currentChatBubbleColorNotifier = ValueNotifier<Color>(const Color(0xFF1E1E1E));
+  final currentChatBgImagePathNotifier = ValueNotifier<String?>(null);
+  final currentChatUseDefaultThemeNotifier = ValueNotifier<bool>(true);
+  final activeTypingUsersNotifier = ValueNotifier<List<dynamic>>([]);
+
+  @override
+  void setState(VoidCallback fn) {
+    if (mounted) {
+      super.setState(fn);
+      isLoadingMessagesNotifier.value = _isLoadingMessages;
+      isSendingMessageNotifier.value = _isSendingMessage;
+      isUploadingFileNotifier.value = _isUploadingFile;
+      if (_selectedFilePath != null) {
+        selectedFileNotifier.value = SelectedFile(
+          path: _selectedFilePath!,
+          name: _selectedFileName ?? 'file',
+          size: _selectedFileSize ?? 0,
+          isImage: _selectedFileIsImage,
+          isCode: _selectedFileIsCode,
+        );
+      } else {
+        selectedFileNotifier.value = null;
+      }
+      appThemeColorNotifier.value = _appThemeColor;
+      appBackgroundColorNotifier.value = _appBackgroundColor;
+      appBackgroundImageNotifier.value = _appBackgroundImagePath;
+      preferredLanguageCodeNotifier.value = _preferredLanguageCode;
+      isSavingSettingsNotifier.value = _isSavingSettings;
+      notificationsVibrationNotifier.value = _notificationsVibrationEnabled;
+      notificationsRingtoneNotifier.value = _notificationsRingtonePath;
+      currentProfileNotifier.value = _currentProfile;
+    }
+  }
 
   @override
   void initState() {
     super.initState();
     _currentProfile = widget.profile;
+    currentProfileNotifier = ValueNotifier<UserProfile>(_currentProfile);
     _chatApi = widget.chatApi ?? ChatApi();
+    _chatService = ChatService(
+      wsUrl: _resolveWsUrl(),
+      userId: _currentProfile.id,
+      username: _currentProfile.nickname,
+    );
+    _chatService.addListener(_onChatServiceUpdate);
     _nicknameController = TextEditingController(text: _currentProfile.nickname);
     _newChatNameController = TextEditingController();
     _newChatIdController = TextEditingController();
@@ -86,37 +180,474 @@ class _HomeScreenState extends State<HomeScreen> {
     _languageOptions = MessageTranslationService.supportedLanguages();
     _applySavedPreferences();
     _loadChats();
+    // keep HTTP polling as fallback; primary real-time handled by WebSocket ChatService
+    _messageController.addListener(_onMessageTextChanged);
+  }
+
+  String _resolveWsUrl() {
+    var base = AuthApi.baseUrl;
+    if (base.startsWith('https://')) base = base.replaceFirst('https://', 'wss://');
+    else if (base.startsWith('http://')) base = base.replaceFirst('http://', 'ws://');
+    // default to port 8080 if not explicit
+    if (!base.contains(':8080')) base = base.replaceAll(RegExp(r'(/index.php)?$'), '') + ':8080';
+    return base;
+  }
+
+  void _onChatServiceUpdate() {
+    if (selectedChat == null) return;
+    if (_chatService.currentRoomId != selectedChat!.id) return;
+    final msgs = _chatService.messages;
+    if (msgs.isNotEmpty) {
+      _sessionMessageCache[selectedChat!.id] = List<ChatMessage>.from(msgs);
+      _replaceChat(selectedChat!, msgs);
+    }
+    // typing users
+    final typingUsers = _chatService.typingUsers.values.map((t) => {'user_id': t.userId, 'status': t.status, 'nickname': t.username, 'nome': t.username}).toList();
+    if (!_typingUsersMatch(activeTypingUsersNotifier.value, typingUsers)) {
+      activeTypingUsersNotifier.value = typingUsers;
+    }
   }
 
   @override
   void dispose() {
+    _messageController.removeListener(_onMessageTextChanged);
+    _typingDebounceTimer?.cancel();
+    _silentPollTimer?.cancel();
+    _chatService.removeListener(_onChatServiceUpdate);
+    _chatService.dispose();
     _nicknameController.dispose();
     _newChatNameController.dispose();
     _newChatIdController.dispose();
     _messageController.dispose();
+    
+    selectedChatNotifier.dispose();
+    isLoadingMessagesNotifier.dispose();
+    isSendingMessageNotifier.dispose();
+    isUploadingFileNotifier.dispose();
+    selectedFileNotifier.dispose();
+    appThemeColorNotifier.dispose();
+    appBackgroundColorNotifier.dispose();
+    preferredLanguageCodeNotifier.dispose();
+    isSavingSettingsNotifier.dispose();
+    notificationsVibrationNotifier.dispose();
+    notificationsRingtoneNotifier.dispose();
+    currentProfileNotifier.dispose();
+    currentChatBgColorNotifier.dispose();
+    currentChatBubbleColorNotifier.dispose();
+    currentChatBgImagePathNotifier.dispose();
+    currentChatUseDefaultThemeNotifier.dispose();
+    activeTypingUsersNotifier.dispose();
+
     super.dispose();
   }
 
-  void _openSettings() {
-    setState(() {
-      selectedChat = null;
-      _rightPaneView = _RightPaneView.settings;
+  void _onMessageTextChanged() {
+    final chat = selectedChat;
+    if (chat == null) return;
+
+    final text = _messageController.text;
+    final newStatus = text.isNotEmpty ? 'typing' : 'idle';
+
+    if (newStatus != _lastSentTypingStatus) {
+      _lastSentTypingStatus = newStatus;
+      _chatApi.updateTypingStatus(
+        userId: _currentProfile.id,
+        chatId: chat.id,
+        status: newStatus,
+      );
+    }
+
+    if (newStatus == 'typing') {
+      _bumpActivity();
+      _typingDebounceTimer?.cancel();
+      _typingDebounceTimer = Timer(const Duration(seconds: 4), () {
+        if (_lastSentTypingStatus == 'typing' && mounted) {
+          _lastSentTypingStatus = 'idle';
+          _chatApi.updateTypingStatus(
+            userId: _currentProfile.id,
+            chatId: chat.id,
+            status: 'idle',
+          );
+        }
+      });
+    }
+  }
+
+  void _bumpActivity() {
+    _pollInterval = const Duration(seconds: 2);
+    _activityCooldownTimer?.cancel();
+    _activityCooldownTimer = Timer(const Duration(seconds: 20), () {
+      if (mounted) {
+        _pollInterval = const Duration(seconds: 8);
+        _restartSilentPolling();
+      }
     });
+  }
+
+  void _restartSilentPolling() {
+    _silentPollTimer?.cancel();
+    _startSilentPolling();
+  }
+
+  void _startSilentPolling() {
+    _silentPollTimer = Timer(_pollInterval, () async {
+      if (!mounted) return;
+      try {
+        final loadedChats = await _chatApi.fetchChats(userId: _currentProfile.id);
+        if (!mounted) return;
+
+        final hydratedChats = loadedChats.map(_hydrateChatFromSession).toList(growable: false);
+
+        // Aggiorna la lista solo se è cambiata
+        final currentIds = chats.map((c) => c.id).toSet();
+        final newIds = hydratedChats.map((c) => c.id).toSet();
+
+        bool isChanged = currentIds.length != newIds.length || !currentIds.containsAll(newIds);
+        if (!isChanged) {
+          // Check if any chat has new messages (by comparing message count or last message content)
+          for (final newChat in hydratedChats) {
+            final oldChat = chats.where((c) => c.id == newChat.id).toList();
+            if (oldChat.isNotEmpty) {
+              final oc = oldChat.first;
+              if (oc.messages.length != newChat.messages.length ||
+                  (oc.messages.isNotEmpty && newChat.messages.isNotEmpty &&
+                   oc.messages.last.text != newChat.messages.last.text)) {
+                isChanged = true;
+                break;
+              }
+            }
+          }
+        }
+
+        if (isChanged) {
+          setState(() {
+            // Preserva self-chat se presente
+            final hasSelfChat = hydratedChats.any((c) => !c.isGroup && c.participantId == _currentProfile.id);
+            final finalChats = List<ChatThread>.from(hydratedChats);
+            if (!hasSelfChat) {
+              final existingSelf = chats.where((c) => !c.isGroup && c.participantId == _currentProfile.id).toList();
+              if (existingSelf.isNotEmpty) {
+                finalChats.insert(0, existingSelf.first);
+              }
+            }
+            chats = finalChats;
+
+            // Se la chat selezionata ha nuovi messaggi, aggiorna anche la selezione
+            if (selectedChat != null) {
+              final updatedSelected = chats.where((c) => c.id == selectedChat!.id).toList();
+              if (updatedSelected.isNotEmpty) {
+                selectedChat = updatedSelected.first;
+                selectedChatNotifier.value = selectedChat;
+              }
+            }
+          });
+        }
+
+        // Aggiorna messaggi della chat selezionata
+        final chat = selectedChat;
+        if (chat != null) {
+          final result = await _chatApi.fetchMessages(
+            userId: _currentProfile.id,
+            chatId: chat.id,
+          );
+          if (!mounted) return;
+
+          if (result.typingUsers.isNotEmpty) {
+            _bumpActivity();
+          }
+
+          if (!_typingUsersMatch(activeTypingUsersNotifier.value, result.typingUsers)) {
+            activeTypingUsersNotifier.value = List<dynamic>.from(result.typingUsers);
+          }
+
+          _replaceChat(chat, result.messages);
+        }
+      } catch (_) {
+        // Silenzioso: nessun errore mostrato all'utente
+      }
+      if (mounted) _startSilentPolling();
+    });
+  }
+
+  ChatThread _hydrateChatFromSession(ChatThread chat) {
+    final cachedMessages = _sessionMessageCache[chat.id];
+    final mergedMessages = cachedMessages == null || cachedMessages.isEmpty
+        ? chat.messages
+        : _mergeMessageLists(cachedMessages, chat.messages);
+
+    _sessionMessageCache[chat.id] = List<ChatMessage>.from(mergedMessages);
+    return ChatThread(
+      id: chat.id,
+      title: chat.title,
+      participantId: chat.participantId,
+      messages: mergedMessages,
+      isGroup: chat.isGroup,
+      createdBy: chat.createdBy,
+      avatarUrl: chat.avatarUrl,
+      members: chat.members,
+      backgroundColorValue: chat.backgroundColorValue,
+      bubbleColorValue: chat.bubbleColorValue,
+      backgroundImagePath: chat.backgroundImagePath,
+      useDefaultTheme: chat.useDefaultTheme,
+    );
+  }
+
+  List<ChatMessage> _mergeMessageLists(List<ChatMessage> currentMsgs, List<ChatMessage> remoteMessages) {
+    if (currentMsgs.isEmpty && remoteMessages.isEmpty) {
+      return currentMsgs;
+    }
+
+    if (remoteMessages.isEmpty) {
+      return currentMsgs;
+    }
+
+    if (currentMsgs.isEmpty) {
+      return remoteMessages;
+    }
+
+    if (remoteMessages.length <= currentMsgs.length) {
+      final offset = currentMsgs.length - remoteMessages.length;
+      var tailMatches = true;
+      for (var i = 0; i < remoteMessages.length; i++) {
+        if (_messageKey(currentMsgs[offset + i]) != _messageKey(remoteMessages[i])) {
+          tailMatches = false;
+          break;
+        }
+      }
+      if (tailMatches) {
+        var changed = false;
+        final merged = List<ChatMessage>.from(currentMsgs);
+        for (var i = 0; i < remoteMessages.length; i++) {
+          final currentIndex = offset + i;
+          final local = currentMsgs[currentIndex];
+          final remote = remoteMessages[i];
+          if (!_messagesMatch(local, remote)) {
+            merged[currentIndex] = remote;
+            changed = true;
+          }
+        }
+        return changed ? merged : currentMsgs;
+      }
+    }
+
+    final localMap = <String, ChatMessage>{};
+    for (final message in currentMsgs) {
+      localMap[_messageKey(message)] = message;
+    }
+
+    final remoteKeys = <String>{};
+    final merged = <ChatMessage>[];
+    var changed = false;
+
+    for (final remote in remoteMessages) {
+      final key = _messageKey(remote);
+      remoteKeys.add(key);
+      final local = localMap[key];
+      if (local != null && _messagesMatch(local, remote)) {
+        merged.add(local);
+      } else {
+        changed = true;
+        merged.add(remote);
+      }
+    }
+
+    for (final local in currentMsgs) {
+      final key = _messageKey(local);
+      if (!remoteKeys.contains(key)) {
+        changed = true;
+        merged.add(local);
+      }
+    }
+
+    return changed ? merged : currentMsgs;
+  }
+
+  bool _messagesMatch(ChatMessage local, ChatMessage remote) {
+    return local.id == remote.id &&
+        local.text == remote.text &&
+        local.senderId == remote.senderId &&
+        local.canonicalText == remote.canonicalText &&
+        local.fileAttachmentId == remote.fileAttachmentId &&
+        local.fileName == remote.fileName &&
+        local.mimeType == remote.mimeType &&
+        local.sourceUrl == remote.sourceUrl &&
+        local.previewType == remote.previewType &&
+        local.previewPayload.toString() == remote.previewPayload.toString() &&
+        local.status == remote.status &&
+        local.timestamp?.toIso8601String() == remote.timestamp?.toIso8601String();
+  }
+
+  bool _typingUsersMatch(List<dynamic> currentTyping, List<dynamic> newTyping) {
+    if (currentTyping.length != newTyping.length) {
+      return false;
+    }
+    for (var i = 0; i < currentTyping.length; i++) {
+      final a = currentTyping[i] is Map
+          ? Map<String, dynamic>.from(currentTyping[i] as Map)
+          : <String, dynamic>{};
+      final b = newTyping[i] is Map
+          ? Map<String, dynamic>.from(newTyping[i] as Map)
+          : <String, dynamic>{};
+      if (a['user_id']?.toString() != b['user_id']?.toString() ||
+          a['status']?.toString() != b['status']?.toString() ||
+          a['nickname']?.toString() != b['nickname']?.toString() ||
+          a['nome']?.toString() != b['nome']?.toString()) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  void _openSettings() {
+    final isMobile = Platform.isAndroid || Platform.isIOS;
+    if (isMobile) {
+      Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => MobileSettingsScreen(
+            profileNotifier: currentProfileNotifier,
+            nicknameController: _nicknameController,
+            themeColorNotifier: appThemeColorNotifier,
+            backgroundColorNotifier: appBackgroundColorNotifier,
+            backgroundImageNotifier: appBackgroundImageNotifier,
+            languageNotifier: preferredLanguageCodeNotifier,
+            supportedLanguages: _languageOptions,
+            presetColors: _presetColors,
+            onThemeColorChanged: (color) {
+              setState(() {
+                _appThemeColor = color;
+              });
+            },
+            onBackgroundColorChanged: (color) {
+              setState(() {
+                _appBackgroundColor = color;
+              });
+            },
+            onPickBackgroundImage: _pickAppBackgroundImage,
+            onClearBackgroundImage: _clearAppBackgroundImage,
+            onBackgroundImageChanged: (path) {
+              setState(() {
+                _appBackgroundImagePath = path;
+              });
+            },
+            onLanguageChanged: (languageCode) {
+              setState(() {
+                _preferredLanguageCode = languageCode;
+              });
+            },
+            isSavingNotifier: isSavingSettingsNotifier,
+            onSavePressed: _saveSettings,
+            vibrationNotifier: notificationsVibrationNotifier,
+            onVibrationToggled: _toggleVibration,
+            ringtoneNotifier: notificationsRingtoneNotifier,
+            onPickRingtone: _pickRingtone,
+            onEditProfilePressed: _openEditProfileScreen,
+            onLogoutPressed: _logout,
+          ),
+        ),
+      );
+    } else {
+      setState(() {
+        selectedChat = null;
+        _rightPaneView = _RightPaneView.settings;
+      });
+    }
   }
 
   void _openNewChat() {
-    setState(() {
-      selectedChat = null;
-      _rightPaneView = _RightPaneView.newChat;
-    });
+    final isMobile = Platform.isAndroid || Platform.isIOS;
+    if (isMobile) {
+      showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Colors.transparent,
+        builder: (context) {
+          final isDark = Theme.of(context).brightness == Brightness.dark;
+          return Container(
+            padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF101012) : const Color(0xFFFFFFFF),
+              borderRadius: const BorderRadius.only(
+                topLeft: Radius.circular(24),
+                topRight: Radius.circular(24),
+              ),
+            ),
+            child: SafeArea(
+              child: NewChatPanel(
+                currentUserId: widget.profile.id,
+                nameController: _newChatNameController,
+                idController: _newChatIdController,
+                selectedBackgroundColor: _newChatBackgroundColor,
+                selectedBubbleColor: _newChatBubbleColor,
+                presetColors: _presetColors,
+                isCreating: _isCreatingChat,
+                onBackgroundColorChanged: (color) {
+                  setState(() => _newChatBackgroundColor = color);
+                },
+                onBubbleColorChanged: (color) {
+                  setState(() => _newChatBubbleColor = color);
+                },
+                onCreatePressed: () async {
+                  await _createChat();
+                  if (mounted) {
+                    Navigator.of(context).pop(); // Close sheet
+                  }
+                },
+              ),
+            ),
+          );
+        },
+      );
+    } else {
+      setState(() {
+        selectedChat = null;
+        _rightPaneView = _RightPaneView.newChat;
+      });
+    }
   }
 
   Future<void> _openCreateGroupScreen() async {
-    final newGroupId = await Navigator.of(context).push<String>(
-      MaterialPageRoute<String>(
-        builder: (_) => GroupCreateScreen(currentUserId: _currentProfile.id),
-      ),
-    );
+    final isMobile = Platform.isAndroid || Platform.isIOS;
+    String? newGroupId;
+
+    if (isMobile) {
+      newGroupId = await showModalBottomSheet<String>(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Colors.transparent,
+        builder: (context) {
+          final isDark = Theme.of(context).brightness == Brightness.dark;
+          return Container(
+            height: MediaQuery.of(context).size.height * 0.8,
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF101012) : const Color(0xFFFFFFFF),
+              borderRadius: const BorderRadius.only(
+                topLeft: Radius.circular(24),
+                topRight: Radius.circular(24),
+              ),
+            ),
+            child: ClipRRect(
+              borderRadius: const BorderRadius.only(
+                topLeft: Radius.circular(24),
+                topRight: Radius.circular(24),
+              ),
+              child: GroupCreateScreen(
+                currentUserId: _currentProfile.id,
+                existingChats: chats,
+              ),
+            ),
+          );
+        },
+      );
+    } else {
+      newGroupId = await Navigator.of(context).push<String>(
+        MaterialPageRoute<String>(
+          builder: (_) => GroupCreateScreen(
+            currentUserId: _currentProfile.id,
+            existingChats: chats,
+          ),
+        ),
+      );
+    }
 
     if (newGroupId != null && mounted) {
       await _loadChats();
@@ -139,6 +670,7 @@ class _HomeScreenState extends State<HomeScreen> {
         _currentProfile = updatedProfile;
         _nicknameController.text = updatedProfile.nickname;
       });
+      await AppPreferences.instance.saveUserProfile(updatedProfile);
     }
   }
 
@@ -148,8 +680,39 @@ class _HomeScreenState extends State<HomeScreen> {
       final loadedChats =
           await _chatApi.fetchChats(userId: _currentProfile.id);
       if (!mounted) return;
+
+      final hydratedChats = loadedChats.map(_hydrateChatFromSession).toList(growable: false);
+
+      final hasSelfChat = hydratedChats.any((c) => !c.isGroup && c.participantId == _currentProfile.id);
+      final List<ChatThread> finalChats = List<ChatThread>.from(hydratedChats);
+
+      if (!hasSelfChat) {
+        try {
+          final selfChatId = await _chatApi.createChat(
+            userId: _currentProfile.id,
+            targetUserId: _currentProfile.id,
+          );
+          final selfChat = ChatThread(
+            id: selfChatId,
+            title: 'Note personali (Tu)',
+            participantId: _currentProfile.id,
+            messages: <ChatMessage>[],
+          );
+          finalChats.insert(0, selfChat);
+        } catch (_) {
+          final localSelfId = ChatThread.generateTenDigitId();
+          final selfChat = ChatThread(
+            id: localSelfId,
+            title: 'Note personali (Tu)',
+            participantId: _currentProfile.id,
+            messages: <ChatMessage>[],
+          );
+          finalChats.insert(0, selfChat);
+        }
+      }
+
       setState(() {
-        chats = loadedChats;
+        chats = finalChats;
         if (selectedChat != null) {
           final matches =
               chats.where((chat) => chat.id == selectedChat!.id).toList();
@@ -174,12 +737,16 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _loadMessages(ChatThread chat) async {
     setState(() => _isLoadingMessages = true);
     try {
-      final messages = await _chatApi.fetchMessages(
+      final result = await _chatApi.fetchMessages(
         userId: _currentProfile.id,
         chatId: chat.id,
       );
       if (!mounted) return;
-      _replaceChat(chat, messages);
+      if (!_typingUsersMatch(activeTypingUsersNotifier.value, result.typingUsers)) {
+        activeTypingUsersNotifier.value = List<dynamic>.from(result.typingUsers);
+      }
+      _sessionMessageCache[chat.id] = List<ChatMessage>.from(result.messages);
+      _replaceChat(chat, result.messages);
     } catch (error) {
       if (mounted) {
         ApiExceptionHandler.handleError(
@@ -195,33 +762,137 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  void _replaceChat(ChatThread chat, List<ChatMessage> messages) {
+  String _messageKey(ChatMessage m) => m.id ?? '${m.senderId}_${m.text.hashCode}_${m.timestamp?.toIso8601String() ?? ''}';
+
+  void _replaceChat(ChatThread chat, List<ChatMessage> remoteMessages) {
     final index = chats.indexWhere((element) => element.id == chat.id);
-    if (index == -1) {
-      return;
+    if (index == -1) return;
+
+    final currentMsgs = chats[index].messages;
+    if (currentMsgs.isEmpty && remoteMessages.isEmpty) return;
+
+    // Merge intelligente: preserva istanze locali per evitare ricaricamento media
+    final localMap = <String, ChatMessage>{};
+    for (final m in currentMsgs) {
+      localMap[_messageKey(m)] = m;
     }
+
+    bool changed = false;
+    final merged = <ChatMessage>[];
+    for (final remote in remoteMessages) {
+      final key = _messageKey(remote);
+      final local = localMap[key];
+      if (local != null) {
+        if (local.status != remote.status ||
+            local.text != remote.text ||
+            local.fileName != remote.fileName ||
+            local.sourceUrl != remote.sourceUrl ||
+            local.previewType != remote.previewType ||
+            local.previewPayload.toString() != remote.previewPayload.toString()) {
+          changed = true;
+          merged.add(remote);
+        } else {
+          merged.add(local);
+        }
+      } else {
+        changed = true;
+        merged.add(remote);
+      }
+    }
+
+    if (currentMsgs.length != remoteMessages.length) {
+      changed = true;
+    }
+
+    if (!changed) return;
+
     final updatedChat = ChatThread(
       id: chat.id,
       title: chat.title,
       participantId: chat.participantId,
-      messages: messages,
+      messages: merged,
+      isGroup: chat.isGroup,
+      createdBy: chat.createdBy,
+      avatarUrl: chat.avatarUrl,
+      members: chat.members,
       backgroundColorValue: chat.backgroundColorValue,
       bubbleColorValue: chat.bubbleColorValue,
+      backgroundImagePath: chat.backgroundImagePath,
+      useDefaultTheme: chat.useDefaultTheme,
     );
+    _sessionMessageCache[chat.id] = List<ChatMessage>.from(merged);
     setState(() {
       chats[index] = updatedChat;
       if (selectedChat?.id == updatedChat.id) {
         selectedChat = updatedChat;
+        selectedChatNotifier.value = updatedChat;
       }
     });
   }
 
   Future<void> _selectChat(ChatThread chat) async {
+    activeTypingUsersNotifier.value = [];
+    _lastSentTypingStatus = 'idle';
+    _messageController.clear();
+    final sessionChat = _hydrateChatFromSession(chat);
     setState(() {
-      selectedChat = chat;
+      selectedChat = sessionChat;
+      selectedChatNotifier.value = sessionChat;
       _rightPaneView = _RightPaneView.chat;
     });
     await _loadChatCustomSettings(chat.id);
+
+    final isMobile = Platform.isAndroid || Platform.isIOS;
+    if (isMobile) {
+      Navigator.of(context).push(
+        MaterialPageRoute<void>(
+            builder: (_) => MobileChatScreen(
+            chat: sessionChat,
+            selectedChatNotifier: selectedChatNotifier,
+            isLoadingNotifier: isLoadingMessagesNotifier,
+            isSendingNotifier: isSendingMessageNotifier,
+            isUploadingNotifier: isUploadingFileNotifier,
+            selectedFileNotifier: selectedFileNotifier,
+            currentUserId: _currentProfile.id,
+            messageController: _messageController,
+            onSendPressed: _sendMessage,
+            onAttachPressed: _pickFile,
+            customBgColorNotifier: currentChatBgColorNotifier,
+            customBubbleColorNotifier: currentChatBubbleColorNotifier,
+            customBgImagePathNotifier: currentChatBgImagePathNotifier,
+            customUseDefaultThemeNotifier: currentChatUseDefaultThemeNotifier,
+            onCustomisePressed: () => _showCustomisationDialog(selectedChat!),
+            onClearFilePressed: () {
+              setState(() {
+                _selectedFilePath = null;
+                _selectedFileName = null;
+                _selectedFileSize = null;
+                _selectedFileIsImage = false;
+                _selectedFileIsCode = false;
+                selectedFileNotifier.value = null;
+              });
+            },
+            activeTypingUsersNotifier: activeTypingUsersNotifier,
+            onRecordingPressed: _toggleRecording,
+            isRecording: _isRecording,
+            sendOnEnter: _sendOnEnter,
+            onToggleSendOnEnter: () => setState(() => _sendOnEnter = !_sendOnEnter),
+          ),
+        ),
+      ).then((_) {
+        setState(() {
+          selectedChat = null;
+          selectedChatNotifier.value = null;
+        });
+      });
+    }
+
+    // Connect websocket to this room for real-time updates
+    try {
+      _chatService.connectToRoom(chat.id);
+    } catch (_) {}
+
+    // initial load for the room, but avoid reloading after sends which causes UI jumps
     await _loadMessages(chat);
   }
 
@@ -231,21 +902,37 @@ class _HomeScreenState extends State<HomeScreen> {
     if (jsonStr != null) {
       try {
         final Map<String, dynamic> data = jsonDecode(jsonStr);
+        final useDefault = data['useDefaultTheme'] ?? false;
         setState(() {
-          _currentChatBgColor = Color(data['backgroundColor'] ?? 0xFFFFEEF1);
-          _currentChatBubbleColor = Color(data['bubbleColor'] ?? 0xFFDC143C);
+          _currentChatUseDefaultTheme = useDefault;
+          currentChatUseDefaultThemeNotifier.value = useDefault;
           _currentChatBgImagePath = data['backgroundImagePath'];
-          _currentChatUseDefaultTheme = data['useDefaultTheme'] ?? false;
+          currentChatBgImagePathNotifier.value = data['backgroundImagePath'];
+          if (useDefault) {
+            _currentChatBgColor = Color(AppPreferences.instance.backgroundColorValue);
+            currentChatBgColorNotifier.value = _currentChatBgColor;
+            _currentChatBubbleColor = Color(AppPreferences.instance.themeColorValue);
+            currentChatBubbleColorNotifier.value = _currentChatBubbleColor;
+          } else {
+            _currentChatBgColor = Color(data['backgroundColor'] ?? AppPreferences.instance.backgroundColorValue);
+            currentChatBgColorNotifier.value = _currentChatBgColor;
+            _currentChatBubbleColor = Color(data['bubbleColor'] ?? AppPreferences.instance.themeColorValue);
+            currentChatBubbleColorNotifier.value = _currentChatBubbleColor;
+          }
         });
         return;
       } catch (_) {}
     }
     // Default to app settings
     setState(() {
-      _currentChatBgColor = const Color(0xFFFFEEF1);
+      _currentChatBgColor = Color(AppPreferences.instance.backgroundColorValue);
+      currentChatBgColorNotifier.value = _currentChatBgColor;
       _currentChatBubbleColor = Color(AppPreferences.instance.themeColorValue);
+      currentChatBubbleColorNotifier.value = _currentChatBubbleColor;
       _currentChatBgImagePath = null;
+      currentChatBgImagePathNotifier.value = null;
       _currentChatUseDefaultTheme = true;
+      currentChatUseDefaultThemeNotifier.value = true;
     });
   }
 
@@ -266,15 +953,19 @@ class _HomeScreenState extends State<HomeScreen> {
     await prefs.setString('chat_settings_$chatId', jsonEncode(data));
     setState(() {
       _currentChatBgColor = bgColor;
+      currentChatBgColorNotifier.value = bgColor;
       _currentChatBubbleColor = bubbleColor;
+      currentChatBubbleColorNotifier.value = bubbleColor;
       _currentChatBgImagePath = bgImagePath;
+      currentChatBgImagePathNotifier.value = bgImagePath;
       _currentChatUseDefaultTheme = useDefault;
+      currentChatUseDefaultThemeNotifier.value = useDefault;
     });
   }
 
   Future<void> _createChat() async {
     final name = _newChatNameController.text.trim();
-    final participantId = _newChatIdController.text.trim();
+    final participantId = _newChatIdController.text.trim().replaceAll(' ', '');
 
     if (name.isEmpty) {
       _showSnackBar('Inserisci il nome utente');
@@ -343,12 +1034,34 @@ class _HomeScreenState extends State<HomeScreen> {
     if (!mounted) {
       return;
     }
+    final archivedList = prefs.getStringList('archived_chats_${_currentProfile.id}') ?? [];
     setState(() {
       _appThemeColor = Color(AppPreferences.instance.themeColorValue);
+      _appBackgroundColor = Color(AppPreferences.instance.backgroundColorValue);
+      _appBackgroundImagePath = AppPreferences.instance.backgroundImagePath;
+      appBackgroundImageNotifier.value = _appBackgroundImagePath;
       _preferredLanguageCode = AppPreferences.instance.preferredLanguageCode;
       _notificationsVibrationEnabled = prefs.getBool('notifications_vibration_enabled') ?? true;
       _notificationsRingtonePath = prefs.getString('notifications_ringtone_path');
+      _archivedChatIds = archivedList.toSet();
     });
+  }
+
+  Future<void> _toggleArchiveChat(String chatId) async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      if (_archivedChatIds.contains(chatId)) {
+        _archivedChatIds.remove(chatId);
+      } else {
+        _archivedChatIds.add(chatId);
+        if (selectedChat?.id == chatId) {
+          selectedChat = null;
+          _rightPaneView = _RightPaneView.settings;
+        }
+      }
+    });
+    await prefs.setStringList('archived_chats_${_currentProfile.id}', _archivedChatIds.toList());
+    _showSnackBar(_archivedChatIds.contains(chatId) ? 'Chat archiviata' : 'Chat ripristinata');
   }
 
   Future<void> _toggleVibration(bool val) async {
@@ -376,6 +1089,27 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  Future<void> _pickAppBackgroundImage() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(type: FileType.image);
+      if (result != null && result.files.single.path != null) {
+        setState(() {
+          _appBackgroundImagePath = result.files.single.path!;
+        });
+        _showSnackBar('Immagine di sfondo app impostata con successo!');
+      }
+    } catch (_) {
+      _showSnackBar('Impossibile selezionare l\'immagine di sfondo.');
+    }
+  }
+
+  void _clearAppBackgroundImage() {
+    setState(() {
+      _appBackgroundImagePath = null;
+      appBackgroundImageNotifier.value = null;
+    });
+  }
+
   Future<void> _saveSettings() async {
     final nickname = _nicknameController.text.trim();
     if (nickname.isEmpty) {
@@ -386,6 +1120,8 @@ class _HomeScreenState extends State<HomeScreen> {
     try {
       await AppPreferences.instance.saveSettings(
         themeColorValue: _appThemeColor.value,
+        backgroundColorValue: _appBackgroundColor.value,
+        backgroundImagePath: _appBackgroundImagePath,
         preferredLanguageCode: _preferredLanguageCode,
       );
       final chat = selectedChat;
@@ -400,25 +1136,138 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  Future<void> _logout() async {
+    await AppPreferences.instance.clearSession();
+    if (mounted) {
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute<void>(
+          builder: (_) => const OnboardingWizardScreen(),
+        ),
+      );
+    }
+  }
+
+  void _toggleRecording() {
+    final chat = selectedChat;
+    if (chat == null) return;
+    setState(() => _isRecording = !_isRecording);
+    _chatApi.updateTypingStatus(
+      userId: _currentProfile.id,
+      chatId: chat.id,
+      status: _isRecording ? 'recording' : 'idle',
+    );
+    if (_isRecording) {
+      _bumpActivity();
+    }
+  }
+
   Future<void> _sendMessage() async {
     final chat = selectedChat;
     final text = _messageController.text.trim();
-    if (chat == null || text.isEmpty) {
+    if (chat == null || (text.isEmpty && _selectedFilePath == null)) {
       return;
     }
 
+    _bumpActivity();
     setState(() => _isSendingMessage = true);
     try {
+      String? attachmentId;
+      String messageText = text;
+
+      if (_selectedFilePath != null) {
+        final path = _selectedFilePath!;
+        final size = _selectedFileSize ?? 0;
+        final fileName = _selectedFileName ?? 'file';
+
+        if (_selectedFileIsCode) {
+          try {
+            final content = await File(path).readAsString();
+            final ext = fileName.split('.').last.toLowerCase();
+            messageText = '```$ext:$fileName\n$content\n```';
+            _selectedFilePath = null;
+            _selectedFileName = null;
+            _selectedFileSize = null;
+            _selectedFileIsImage = false;
+            _selectedFileIsCode = false;
+          } catch (_) {
+            // Fallback se fallisce la lettura come stringa
+          }
+        }
+
+        if (_selectedFilePath != null) {
+          String? adminPassword;
+          bool overrideLimit = false;
+
+          // Limit check (50 MB = 52428800 bytes)
+          if (size > 52428800) {
+            final password = await _showBypassDialog();
+            if (password == null) {
+              _showSnackBar('Upload annullato: file superiore a 50MB.');
+              setState(() => _isSendingMessage = false);
+              return;
+            }
+            adminPassword = password;
+            overrideLimit = true;
+          }
+
+          setState(() => _isUploadingFile = true);
+
+          // Upload file real binary
+          final attachmentData = await _chatApi.uploadFile(
+            userId: _currentProfile.id,
+            filePath: path,
+            adminPassword: adminPassword,
+            overrideLimit: overrideLimit,
+          );
+
+          attachmentId = attachmentData['id']?.toString();
+          if (attachmentId == null) {
+            throw Exception('Errore nel ricevere ID allegato dal server.');
+          }
+
+          if (messageText.isEmpty) {
+            messageText = 'Allegato: $fileName';
+          }
+        }
+      }
+
+      // If websocket isn't connected for this room, optimistically append the message locally
+      if (!(_chatService.connected && _chatService.currentRoomId == chat.id)) {
+        final tempId = 'temp_${DateTime.now().microsecondsSinceEpoch}';
+        final optimistic = ChatMessage(id: tempId, text: messageText, senderId: _currentProfile.id, status: 'sending', timestamp: DateTime.now());
+        setState(() {
+          chat.messages.add(optimistic);
+          _sessionMessageCache[chat.id] = List<ChatMessage>.from(chat.messages);
+          selectedChat = chat;
+          selectedChatNotifier.value = chat;
+        });
+      }
+
       await _chatApi.sendMessage(
         userId: _currentProfile.id,
         receiverId: chat.participantId,
-        text: text,
+        text: messageText,
         chatId: chat.id,
+        fileAttachmentId: attachmentId,
       );
-      final updatedMessages = List<ChatMessage>.from(chat.messages)
-        ..add(ChatMessage(text: text, senderId: _currentProfile.id));
-      _replaceChat(chat, updatedMessages);
+
+      // if websocket connected for this room, send through it as well for low-latency
+      if (_chatService.connected && _chatService.currentRoomId == chat.id) {
+        await _chatService.sendMessage(messageText);
+      }
+
       _messageController.clear();
+      setState(() {
+        _selectedFilePath = null;
+        _selectedFileName = null;
+        _selectedFileSize = null;
+        _selectedFileIsImage = false;
+        _selectedFileIsCode = false;
+        _isUploadingFile = false;
+      });
+
+      // avoid reloading the entire chat which causes the UI to jump
+      _bumpActivity();
     } catch (error) {
       if (mounted) {
         ApiExceptionHandler.handleError(
@@ -429,12 +1278,15 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     } finally {
       if (mounted) {
-        setState(() => _isSendingMessage = false);
+        setState(() {
+          _isSendingMessage = false;
+          _isUploadingFile = false;
+        });
       }
     }
   }
 
-  Future<void> _pickAndSendFile() async {
+  Future<void> _pickFile() async {
     final chat = selectedChat;
     if (chat == null) return;
 
@@ -445,56 +1297,141 @@ class _HomeScreenState extends State<HomeScreen> {
       final path = result.files.single.path!;
       final file = File(path);
       final size = await file.length();
+      final fileName = path.split('/').last.split('\\').last;
+      final extension = fileName.split('.').last.toLowerCase();
+      final isImage = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp'].contains(extension);
+      
+      final codeExtensions = {'php', 'dart', 'js', 'ts', 'py', 'java', 'cpp', 'c', 'h', 'html', 'css', 'json', 'yaml', 'xml', 'sql', 'sh', 'bat', 'swift', 'kt', 'rs', 'go', 'txt', 'md'};
+      final isCode = codeExtensions.contains(extension);
 
-      String? adminPassword;
-      bool overrideLimit = false;
-
-      // Limit check (50 MB = 52428800 bytes)
-      if (size > 52428800) {
-        final password = await _showBypassDialog();
-        if (password == null) {
-          _showSnackBar('Upload annullato: file superiore a 50MB.');
-          return;
-        }
-        adminPassword = password;
-        overrideLimit = true;
-      }
-
-      setState(() => _isUploadingFile = true);
-
-      // Upload file real binary
-      final attachmentData = await _chatApi.uploadFile(
-        userId: _currentProfile.id,
-        filePath: path,
-        adminPassword: adminPassword,
-        overrideLimit: overrideLimit,
-      );
-
-      final attachmentId = attachmentData['id']?.toString();
-      if (attachmentId == null) {
-        throw Exception('Errore nel ricevere ID allegato dal server.');
-      }
-
-      // Send message with file attachment linked
-      await _chatApi.sendMessage(
-        userId: _currentProfile.id,
-        receiverId: chat.participantId,
-        text: 'Allegato: ${attachmentData['file_name']}',
-        chatId: chat.id,
-        fileAttachmentId: attachmentId,
-      );
-
-      // Reload
-      await _loadMessages(chat);
-      _showSnackBar('File inviato con successo!');
+      setState(() {
+        _selectedFilePath = path;
+        _selectedFileName = fileName;
+        _selectedFileSize = size;
+        _selectedFileIsImage = isImage;
+        _selectedFileIsCode = isCode;
+      });
     } catch (error) {
       if (mounted) {
         ApiExceptionHandler.handleError(context, error);
       }
-    } finally {
-      if (mounted) {
-        setState(() => _isUploadingFile = false);
-      }
+    }
+  }
+
+  Future<bool?> _showFilePreviewDialog({
+    required String fileName,
+    required int fileSize,
+    required String filePath,
+    required bool isImage,
+  }) async {
+    String sizeLabel;
+    if (fileSize < 1024) {
+      sizeLabel = '$fileSize B';
+    } else if (fileSize < 1024 * 1024) {
+      sizeLabel = '${(fileSize / 1024).toStringAsFixed(1)} KB';
+    } else {
+      sizeLabel = '${(fileSize / (1024 * 1024)).toStringAsFixed(1)} MB';
+    }
+
+    return showDialog<bool>(
+      context: context,
+      barrierDismissible: true,
+      builder: (context) => AlertDialog(
+        title: const Text('Anteprima File'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (isImage)
+                Container(
+                  height: 200,
+                  margin: const EdgeInsets.only(bottom: 16),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.black12),
+                  ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: Image.file(
+                      File(filePath),
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, __, ___) => const Center(
+                        child: Icon(Icons.broken_image, size: 48, color: Colors.grey),
+                      ),
+                    ),
+                  ),
+                ),
+              if (!isImage)
+                Container(
+                  height: 100,
+                  margin: const EdgeInsets.only(bottom: 16),
+                  decoration: BoxDecoration(
+                    color: Colors.grey[100],
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.black12),
+                  ),
+                  child: Center(
+                    child: Icon(
+                      _getFileIcon(fileName),
+                      size: 48,
+                      color: Colors.blueGrey,
+                    ),
+                  ),
+                ),
+              Text(
+                fileName,
+                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Dimensione: $sizeLabel',
+                style: const TextStyle(color: Colors.grey, fontSize: 13),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('ANNULLA'),
+          ),
+          ElevatedButton.icon(
+            onPressed: () => Navigator.of(context).pop(true),
+            icon: const Icon(Icons.send),
+            label: const Text('INVIA'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  IconData _getFileIcon(String fileName) {
+    final ext = fileName.split('.').last.toLowerCase();
+    switch (ext) {
+      case 'pdf':
+        return Icons.picture_as_pdf_rounded;
+      case 'doc':
+      case 'docx':
+        return Icons.description_rounded;
+      case 'mp3':
+      case 'wav':
+      case 'aac':
+      case 'ogg':
+        return Icons.audiotrack_rounded;
+      case 'mp4':
+      case 'mov':
+      case 'avi':
+      case 'mkv':
+        return Icons.videocam_rounded;
+      case 'zip':
+      case 'rar':
+      case '7z':
+        return Icons.archive_rounded;
+      default:
+        return Icons.insert_drive_file_rounded;
     }
   }
 
@@ -562,7 +1499,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     setDialogState(() {
                       tempUseDefault = val;
                       if (val) {
-                        tempBgColor = const Color(0xFFFFEEF1);
+                        tempBgColor = Color(AppPreferences.instance.backgroundColorValue);
                         tempBubbleColor = Color(AppPreferences.instance.themeColorValue);
                         tempBgImagePath = null;
                         imageController.clear();
@@ -572,18 +1509,16 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
                 if (!tempUseDefault) ...[
                   const Divider(),
-                  const Text('Colore sfondo', style: TextStyle(fontWeight: FontWeight.bold)),
+                  const Text('Colore sfondo chat', style: TextStyle(fontWeight: FontWeight.bold)),
                   const SizedBox(height: 8),
-                  _ColorPalette(
-                    colors: _presetColors,
+                  RichColorBoard(
                     selectedColor: tempBgColor,
                     onColorSelected: (color) => setDialogState(() => tempBgColor = color),
                   ),
                   const SizedBox(height: 16),
-                  const Text('Colore messaggi', style: TextStyle(fontWeight: FontWeight.bold)),
+                  const Text('Colore bolle messaggi', style: TextStyle(fontWeight: FontWeight.bold)),
                   const SizedBox(height: 8),
-                  _ColorPalette(
-                    colors: _presetColors,
+                  RichColorBoard(
                     selectedColor: tempBubbleColor,
                     onColorSelected: (color) => setDialogState(() => tempBubbleColor = color),
                   ),
@@ -634,7 +1569,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildRightPane() {
     if (_rightPaneView == _RightPaneView.newChat) {
-      return _NewChatPanel(
+      return NewChatPanel(
         currentUserId: widget.profile.id,
         nameController: _newChatNameController,
         idController: _newChatIdController,
@@ -652,7 +1587,8 @@ class _HomeScreenState extends State<HomeScreen> {
       );
     }
     if (_rightPaneView == _RightPaneView.chat && selectedChat != null) {
-      return _ChatPanel(
+      return ChatPanel(
+        key: ValueKey(selectedChat!.id),
         chat: selectedChat!,
         currentUserId: _currentProfile.id,
         isLoading: _isLoadingMessages,
@@ -660,24 +1596,48 @@ class _HomeScreenState extends State<HomeScreen> {
         isUploading: _isUploadingFile,
         messageController: _messageController,
         onSendPressed: _sendMessage,
-        onAttachPressed: _pickAndSendFile,
+        onAttachPressed: _pickFile,
         customBgColor: _currentChatBgColor,
         customBubbleColor: _currentChatBubbleColor,
         customBgImagePath: _currentChatBgImagePath,
         customUseDefaultTheme: _currentChatUseDefaultTheme,
         onCustomisePressed: () => _showCustomisationDialog(selectedChat!),
+        selectedFileName: _selectedFileName,
+        selectedFilePath: _selectedFilePath,
+        selectedFileIsImage: _selectedFileIsImage,
+        onClearFilePressed: () {
+          setState(() {
+            _selectedFilePath = null;
+            _selectedFileName = null;
+            _selectedFileSize = null;
+            _selectedFileIsImage = false;
+            _selectedFileIsCode = false;
+          });
+        },
+        activeTypingUsersNotifier: activeTypingUsersNotifier,
+        onRecordingPressed: _toggleRecording,
+        isRecording: _isRecording,
+        sendOnEnter: _sendOnEnter,
+        onToggleSendOnEnter: () => setState(() => _sendOnEnter = !_sendOnEnter),
       );
     }
-    return _SettingsPanel(
+    return SettingsPanel(
       profile: _currentProfile,
       nicknameController: _nicknameController,
       selectedThemeColor: _appThemeColor,
+      selectedBackgroundColor: _appBackgroundColor,
+      selectedBackgroundImagePath: _appBackgroundImagePath,
       selectedLanguageCode: _preferredLanguageCode,
       supportedLanguages: _languageOptions,
       presetColors: _presetColors,
       onThemeColorChanged: (color) {
         setState(() => _appThemeColor = color);
       },
+      onBackgroundColorChanged: (color) {
+        setState(() => _appBackgroundColor = color);
+      },
+      onPickBackgroundImage: _pickAppBackgroundImage,
+      onClearBackgroundImage: _clearAppBackgroundImage,
       onLanguageChanged: (languageCode) {
         setState(() => _preferredLanguageCode = languageCode);
       },
@@ -688,94 +1648,251 @@ class _HomeScreenState extends State<HomeScreen> {
       ringtonePath: _notificationsRingtonePath,
       onPickRingtone: _pickRingtone,
       onEditProfilePressed: _openEditProfileScreen,
+      onLogoutPressed: _logout,
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: Row(
-        children: [
-          Expanded(
-            flex: 3,
-            child: Container(
-              color: const Color(0xFFFDE9EC),
-              child: Column(
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 20, 16, 12),
-                    child: Row(
-                      children: [
-                        const Expanded(
-                          child: Text(
-                            'Le tue chat',
-                            style: TextStyle(
-                              fontSize: 22,
-                              fontWeight: FontWeight.bold,
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final isMobile = Platform.isAndroid || Platform.isIOS;
+
+    Widget bodyContent = Row(
+      children: [
+        Expanded(
+          flex: 3,
+          child: Container(
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(isDark ? 0.015 : 0.2),
+              border: Border(
+                right: BorderSide(
+                  color: Colors.white.withOpacity(isDark ? 0.08 : 0.25),
+                  width: 1.2,
+                ),
+              ),
+            ),
+            child: ClipRect(
+              child: BackdropFilter(
+                filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+                child: Column(
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 20, 16, 12),
+                      child: Row(
+                        children: [
+                          if (_showArchivedOnly)
+                            IconButton(
+                              icon: const Icon(Icons.arrow_back_rounded),
+                              onPressed: () => setState(() => _showArchivedOnly = false),
+                            ),
+                          Expanded(
+                            child: Text(
+                              _showArchivedOnly ? 'Chat archiviate' : 'Le tue chat',
+                              style: const TextStyle(
+                                fontSize: 22,
+                                fontWeight: FontWeight.bold,
+                              ),
                             ),
                           ),
-                        ),
-                        IconButton(
-                          tooltip: 'Impostazioni',
-                          onPressed: _openSettings,
-                          icon: const Icon(Icons.settings),
-                        ),
-                        IconButton(
-                          tooltip: 'Nuovo gruppo',
-                          onPressed: _openCreateGroupScreen,
-                          icon: const Icon(Icons.group_add_outlined),
-                        ),
-                        IconButton(
-                          tooltip: 'Nuova chat',
-                          onPressed: _openNewChat,
-                          icon: const Icon(Icons.add_circle_outline),
-                        ),
-                      ],
+                          if (!_showArchivedOnly) ...[
+                            IconButton(
+                              tooltip: 'Impostazioni',
+                              onPressed: _openSettings,
+                              icon: const Icon(Icons.settings),
+                            ),
+                            IconButton(
+                              tooltip: 'Nuovo gruppo',
+                              onPressed: _openCreateGroupScreen,
+                              icon: const Icon(Icons.group_add_outlined),
+                            ),
+                            IconButton(
+                              tooltip: 'Nuova chat',
+                              onPressed: _openNewChat,
+                              icon: const Icon(Icons.add_circle_outline),
+                            ),
+                          ],
+                        ],
+                      ),
                     ),
-                  ),
-                  const Divider(height: 1),
-                  Expanded(
-                    child: _isLoadingChats
-                        ? const Center(child: CircularProgressIndicator())
-                        : chats.isEmpty
-                            ? const _NoChatsPlaceholder()
-                            : ListView.separated(
-                                itemCount: chats.length,
-                                separatorBuilder: (_, __) =>
-                                    const Divider(height: 1),
+                    Divider(height: 1, color: Colors.white.withOpacity(isDark ? 0.1 : 0.3)),
+                    Expanded(
+                      child: _isLoadingChats
+                          ? const Center(child: CircularProgressIndicator())
+                          : () {
+                              final filteredChats = chats.where((c) => _archivedChatIds.contains(c.id) == _showArchivedOnly).toList();
+                              final showArchiveTile = !_showArchivedOnly && _archivedChatIds.isNotEmpty;
+
+                              if (filteredChats.isEmpty && !showArchiveTile) {
+                                return const _NoChatsPlaceholder();
+                              }
+
+                              return ListView.builder(
+                                padding: const EdgeInsets.symmetric(vertical: 12),
+                                itemCount: filteredChats.length + (showArchiveTile ? 1 : 0),
                                 itemBuilder: (context, index) {
-                                  final chat = chats[index];
+                                  if (showArchiveTile && index == 0) {
+                                    return Padding(
+                                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                                      child: ListTile(
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius: BorderRadius.circular(16),
+                                        ),
+                                        tileColor: Colors.white.withOpacity(isDark ? 0.03 : 0.12),
+                                        leading: CircleAvatar(
+                                          backgroundColor: _appThemeColor.withOpacity(0.2),
+                                          child: Icon(Icons.archive, color: _appThemeColor),
+                                        ),
+                                        title: const Text(
+                                          'Chat archiviate',
+                                          style: TextStyle(fontWeight: FontWeight.bold),
+                                        ),
+                                        trailing: Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                          decoration: BoxDecoration(
+                                            color: _appThemeColor,
+                                            borderRadius: BorderRadius.circular(10),
+                                          ),
+                                          child: Text(
+                                            '${_archivedChatIds.length}',
+                                            style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+                                          ),
+                                        ),
+                                        onTap: () => setState(() => _showArchivedOnly = true),
+                                      ),
+                                    );
+                                  }
+
+                                  final chatIndex = showArchiveTile ? index - 1 : index;
+                                  final chat = filteredChats[chatIndex];
                                   final isSelected = selectedChat == chat;
-                                  return Semantics(
-                                    label: isSelected
-                                        ? 'Chat ${chat.title}, selezionata'
-                                        : 'Chat ${chat.title}',
-                                    child: ListTile(
-                                      selected: isSelected,
-                                      leading: CircleAvatar(
-                                        backgroundColor: _appThemeColor,
-                                        child: const Icon(
-                                          Icons.chat_bubble,
-                                          color: Colors.white,
+
+                                  return Padding(
+                                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                                    child: ClipRRect(
+                                      borderRadius: BorderRadius.circular(16),
+                                      child: Dismissible(
+                                        key: Key('chat_dismiss_${chat.id}'),
+                                        direction: DismissDirection.endToStart,
+                                        background: Container(
+                                          color: _appThemeColor.withOpacity(0.8),
+                                          alignment: Alignment.centerRight,
+                                          padding: const EdgeInsets.only(right: 24),
+                                          child: Icon(
+                                            _showArchivedOnly ? Icons.unarchive_rounded : Icons.archive_rounded,
+                                            color: Colors.white,
+                                            size: 28,
+                                          ),
+                                        ),
+                                        onDismissed: (_) {
+                                          _toggleArchiveChat(chat.id);
+                                        },
+                                        child: Semantics(
+                                          label: isSelected
+                                              ? 'Chat ${chat.title}, selezionata'
+                                              : 'Chat ${chat.title}',
+                                          child: ListTile(
+                                            selected: isSelected,
+                                            selectedTileColor: Colors.white.withOpacity(isDark ? 0.12 : 0.45),
+                                            tileColor: isSelected ? null : Colors.white.withOpacity(isDark ? 0.025 : 0.12),
+                                            shape: RoundedRectangleBorder(
+                                              borderRadius: BorderRadius.circular(16),
+                                              side: BorderSide(
+                                                color: isSelected
+                                                    ? _appThemeColor.withOpacity(0.4)
+                                                    : Colors.white.withOpacity(isDark ? 0.04 : 0.18),
+                                                width: 1,
+                                              ),
+                                            ),
+                                            leading: CircleAvatar(
+                                              backgroundColor: _appThemeColor,
+                                              child: const Icon(
+                                                Icons.chat_bubble,
+                                                color: Colors.white,
+                                              ),
+                                            ),
+                                            title: Text(
+                                              chat.title,
+                                              style: TextStyle(
+                                                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                                              ),
+                                            ),
+                                            subtitle: Text(
+                                              chat.messages.isNotEmpty 
+                                                  ? chat.messages.last.text 
+                                                  : 'Numero: ${chat.participantId}',
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: TextStyle(
+                                                color: isDark ? Colors.white70 : Colors.black54,
+                                                fontStyle: chat.messages.isNotEmpty ? FontStyle.italic : FontStyle.normal,
+                                              ),
+                                            ),
+                                            onTap: () => _selectChat(chat),
+                                          ),
                                         ),
                                       ),
-                                      title: Text(chat.title),
-                                      subtitle: Text('ID: ${chat.participantId}'),
-                                      onTap: () => _selectChat(chat),
                                     ),
                                   );
                                 },
-                              ),
-                  ),
-                ],
+                              );
+                            }(),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
-          Expanded(
-            flex: 5,
-            child: _buildRightPane(),
+        ),
+        Expanded(
+          flex: 5,
+          child: _buildRightPane(),
+        ),
+      ],
+    );
+
+    final outerDecor = isMobile
+        ? null
+        : BoxDecoration(
+            borderRadius: BorderRadius.circular(28),
+            border: Border.all(
+              color: Colors.white.withOpacity(isDark ? 0.08 : 0.35),
+              width: 1.5,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(isDark ? 0.35 : 0.08),
+                blurRadius: 30,
+                spreadRadius: 2,
+                offset: const Offset(0, 12),
+              ),
+            ],
+          );
+
+    return Scaffold(
+      body: Container(
+        width: double.infinity,
+        height: double.infinity,
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: isDark
+                ? [const Color(0xFF000000), const Color(0xFF0C0C0E), const Color(0xFF121212)]
+                : [const Color(0xFFFFFFFF), const Color(0xFFF6F6F9), const Color(0xFFEAEAEE)],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
           ),
-        ],
+        ),
+        child: isMobile
+            ? bodyContent
+            : Padding(
+                padding: const EdgeInsets.all(20.0),
+                child: Container(
+                  decoration: outerDecor,
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(28),
+                    child: bodyContent,
+                  ),
+                ),
+              ),
       ),
     );
   }
@@ -813,8 +1930,9 @@ class _NoChatsPlaceholder extends StatelessWidget {
   }
 }
 
-class _ChatPanel extends StatelessWidget {
-  const _ChatPanel({
+class ChatPanel extends StatefulWidget {
+  const ChatPanel({
+    super.key,
     required this.chat,
     required this.currentUserId,
     required this.isLoading,
@@ -828,6 +1946,15 @@ class _ChatPanel extends StatelessWidget {
     required this.customBgImagePath,
     required this.customUseDefaultTheme,
     required this.onCustomisePressed,
+    this.selectedFileName,
+    this.selectedFilePath,
+    this.selectedFileIsImage = false,
+    required this.onClearFilePressed,
+    required this.activeTypingUsersNotifier,
+    required this.onRecordingPressed,
+    required this.isRecording,
+    this.sendOnEnter = true,
+    required this.onToggleSendOnEnter,
   });
 
   final ChatThread chat;
@@ -843,20 +1970,91 @@ class _ChatPanel extends StatelessWidget {
   final String? customBgImagePath;
   final bool customUseDefaultTheme;
   final VoidCallback onCustomisePressed;
+  final String? selectedFileName;
+  final String? selectedFilePath;
+  final bool selectedFileIsImage;
+  final VoidCallback onClearFilePressed;
+  final ValueNotifier<List<dynamic>> activeTypingUsersNotifier;
+  final VoidCallback onRecordingPressed;
+  final bool isRecording;
+  final bool sendOnEnter;
+  final VoidCallback onToggleSendOnEnter;
+
+  @override
+  State<ChatPanel> createState() => _ChatPanelState();
+}
+
+class _ChatPanelState extends State<ChatPanel> {
+  late final ScrollController _scrollController;
+
+  @override
+  void initState() {
+    super.initState();
+    _scrollController = ScrollController();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom(animated: false));
+  }
+
+  @override
+  void didUpdateWidget(covariant ChatPanel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.chat.id != oldWidget.chat.id) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom(animated: false));
+    } else if (widget.chat.messages.length > oldWidget.chat.messages.length) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!_scrollController.hasClients) return;
+        final wasNearBottom = _scrollController.position.maxScrollExtent - _scrollController.position.pixels < 200;
+        if (wasNearBottom) {
+          _scrollToBottom(animated: true);
+        }
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  void _scrollToBottom({required bool animated}) {
+    if (!_scrollController.hasClients) return;
+    final target = _scrollController.position.maxScrollExtent;
+    if (animated) {
+      _scrollController.animateTo(target, duration: const Duration(milliseconds: 300), curve: Curves.easeOut);
+    } else {
+      _scrollController.jumpTo(target);
+    }
+  }
+
+  Widget _buildStatusTicks(String status, Color bubbleColor, bool isDark) {
+    switch (status) {
+      case 'read':
+        final tickColor = bubbleColor.computeLuminance() > 0.5 ? Colors.black87 : Colors.white;
+        return Icon(Icons.done_all_rounded, size: 14, color: tickColor);
+      case 'delivered':
+        return const Icon(Icons.done_all_rounded, size: 14, color: Colors.grey);
+      case 'sent':
+      default:
+        return const Icon(Icons.done_rounded, size: 14, color: Colors.grey);
+    }
+  }
+
+  String _formatTime(DateTime? ts) {
+    if (ts == null) return '';
+    final h = ts.hour.toString().padLeft(2, '0');
+    final m = ts.minute.toString().padLeft(2, '0');
+    return '$h:$m';
+  }
 
   String _getSenderName(String senderId) {
-    for (final member in chat.members) {
+    for (final member in widget.chat.members) {
       if (member is Map) {
         final id = member['IDutente']?.toString();
         if (id == senderId) {
           final nick = member['nickname']?.toString();
-          if (nick != null && nick.isNotEmpty) {
-            return nick;
-          }
+          if (nick != null && nick.isNotEmpty) return nick;
           final name = member['nome']?.toString();
-          if (name != null && name.isNotEmpty) {
-            return name;
-          }
+          if (name != null && name.isNotEmpty) return name;
         }
       }
     }
@@ -865,74 +2063,138 @@ class _ChatPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final resolvedBubbleColor = customUseDefaultTheme 
-        ? Color(chat.bubbleColorValue) 
-        : customBubbleColor;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final resolvedBubbleColor = widget.customUseDefaultTheme
+        ? Color(widget.chat.bubbleColorValue)
+        : widget.customBubbleColor;
 
     return ChatBackground(
-      backgroundColor: customBgColor,
-      backgroundImagePath: customBgImagePath,
-      useDefaultTheme: customUseDefaultTheme,
+      backgroundColor: widget.customBgColor,
+      backgroundImagePath: widget.customBgImagePath,
+      useDefaultTheme: widget.customUseDefaultTheme,
       child: Column(
         children: [
-          // Sleek visual top header
+          // ── Header ──
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.9),
-              border: const Border(bottom: BorderSide(color: Colors.black12)),
+              color: Colors.white.withOpacity(isDark ? 0.025 : 0.25),
+              border: Border(
+                bottom: BorderSide(
+                  color: Colors.white.withOpacity(isDark ? 0.08 : 0.28),
+                  width: 1.2,
+                ),
+              ),
             ),
-            child: Row(
-              children: [
-                GestureDetector(
-                  onTap: () {
-                    if (!chat.isGroup) {
-                      showDialog<void>(
-                        context: context,
-                        builder: (context) => UserProfileDialog(userId: chat.participantId),
-                      );
-                    }
-                  },
-                  child: MouseRegion(
-                    cursor: chat.isGroup ? SystemMouseCursors.basic : SystemMouseCursors.click,
-                    child: CircleAvatar(
-                      backgroundColor: resolvedBubbleColor,
-                      child: Text(
-                        chat.isGroup 
-                            ? (chat.title.isNotEmpty ? chat.title[0].toUpperCase() : 'G')
-                            : (chat.title.length > 5 ? chat.title.substring(5, 6).toUpperCase() : 'U'),
-                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+            child: ClipRect(
+              child: BackdropFilter(
+                filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+                child: Row(
+                  children: [
+                    if (Navigator.of(context).canPop()) ...[
+                      IconButton(
+                        icon: Icon(Icons.arrow_back_rounded, color: isDark ? Colors.white : Colors.black87),
+                        onPressed: () => Navigator.of(context).pop(),
+                      ),
+                      const SizedBox(width: 8),
+                    ],
+                    GestureDetector(
+                      onTap: () {
+                        if (!widget.chat.isGroup) {
+                          showDialog<void>(
+                            context: context,
+                            builder: (context) => UserProfileDialog(userId: widget.chat.participantId),
+                          );
+                        }
+                      },
+                      child: MouseRegion(
+                        cursor: widget.chat.isGroup ? SystemMouseCursors.basic : SystemMouseCursors.click,
+                        child: CircleAvatar(
+                          backgroundColor: resolvedBubbleColor,
+                          child: Text(
+                            widget.chat.isGroup
+                                ? (widget.chat.title.isNotEmpty ? widget.chat.title[0].toUpperCase() : 'G')
+                                : (widget.chat.title.length > 5
+                                    ? widget.chat.title.substring(5, 6).toUpperCase()
+                                    : 'U'),
+                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                          ),
+                        ),
                       ),
                     ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        chat.title,
-                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            widget.chat.title,
+                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                          ),
+                          ValueListenableBuilder<List<dynamic>>(
+                            valueListenable: widget.activeTypingUsersNotifier,
+                            builder: (context, typingList, _) {
+                              if (typingList.isNotEmpty) {
+                                final names = typingList.map((t) {
+                                  final nickname = t['nickname']?.toString();
+                                  final name = t['nome']?.toString();
+                                  return (nickname != null && nickname.isNotEmpty) ? nickname : (name ?? 'Utente');
+                                }).join(', ');
+                                final anyRecording = typingList.any((t) => t['status']?.toString() == 'recording');
+                                final label = anyRecording ? '$names sta registrando...' : '$names sta scrivendo...';
+                                return Row(
+                                  children: [
+                                    SizedBox(
+                                      width: 10,
+                                      height: 10,
+                                      child: anyRecording
+                                          ? Icon(Icons.mic, size: 10, color: Colors.redAccent)
+                                          : const CircularProgressIndicator(
+                                              strokeWidth: 1.5,
+                                              valueColor: AlwaysStoppedAnimation<Color>(Colors.green),
+                                            ),
+                                    ),
+                                    const SizedBox(width: 6),
+                                    Expanded(
+                                      child: Text(
+                                        label,
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color: anyRecording ? Colors.redAccent : Colors.green,
+                                          fontStyle: FontStyle.italic,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                  ],
+                                );
+                              }
+                              return Text(
+                                widget.chat.isGroup
+                                    ? '${widget.chat.members.length} partecipanti'
+                                    : 'Numero: ${widget.chat.participantId}',
+                                style: TextStyle(fontSize: 12, color: isDark ? Colors.white70 : Colors.black54),
+                              );
+                            },
+                          ),
+                        ],
                       ),
-                      Text(
-                        chat.isGroup ? '${chat.members.length} partecipanti' : 'ID: ${chat.participantId}',
-                        style: const TextStyle(fontSize: 12, color: Colors.grey),
-                      ),
-                    ],
-                  ),
+                    ),
+                    IconButton(
+                      tooltip: 'Personalizza sfondo e colori',
+                      icon: Icon(Icons.palette_rounded, color: isDark ? Colors.white : Colors.black87),
+                      onPressed: widget.onCustomisePressed,
+                    ),
+                  ],
                 ),
-                IconButton(
-                  tooltip: 'Personalizza sfondo e colori',
-                  icon: const Icon(Icons.palette_rounded, color: Colors.black87),
-                  onPressed: onCustomisePressed,
-                ),
-              ],
+              ),
             ),
           ),
-          if (isLoading || isUploading) const LinearProgressIndicator(minHeight: 2),
+          if (widget.isLoading || widget.isUploading) const LinearProgressIndicator(minHeight: 2),
+          // ── Message list ──
           Expanded(
-            child: chat.messages.isEmpty
+            child: widget.chat.messages.isEmpty
                 ? const Center(
                     child: Text(
                       'inizia la chat ora :)',
@@ -940,45 +2202,102 @@ class _ChatPanel extends StatelessWidget {
                     ),
                   )
                 : ListView.builder(
+                    controller: _scrollController,
                     padding: const EdgeInsets.all(16),
-                    itemCount: chat.messages.length,
+                    itemCount: widget.chat.messages.length,
                     itemBuilder: (context, index) {
-                      final message = chat.messages[index];
-                      final isSent = message.isSentBy(currentUserId);
+                      final message = widget.chat.messages[index];
+                      final isSent = message.isSentBy(widget.currentUserId);
+
+                      final isImageOrVideo = message.previewType == 'image' ||
+                          message.previewType == 'video' ||
+                          (message.fileName != null &&
+                              (message.fileName!.toLowerCase().endsWith('.png') ||
+                                  message.fileName!.toLowerCase().endsWith('.jpg') ||
+                                  message.fileName!.toLowerCase().endsWith('.jpeg') ||
+                                  message.fileName!.toLowerCase().endsWith('.webp') ||
+                                  message.fileName!.toLowerCase().endsWith('.gif') ||
+                                  message.fileName!.toLowerCase().endsWith('.mp4') ||
+                                  message.fileName!.toLowerCase().endsWith('.mov') ||
+                                  message.fileName!.toLowerCase().endsWith('.avi') ||
+                                  message.fileName!.toLowerCase().endsWith('.mkv')));
+                      final showText = !(isImageOrVideo &&
+                          (message.text == 'Allegato: ${message.fileName}' ||
+                              message.text.startsWith('Allegato:')));
+
                       return Align(
-                        alignment:
-                            isSent ? Alignment.centerRight : Alignment.centerLeft,
+                        key: ValueKey(message.id ??
+                            'msg_${message.senderId}_${message.text.hashCode}_$index'),
+                        alignment: isSent ? Alignment.centerRight : Alignment.centerLeft,
                         child: Container(
                           margin: const EdgeInsets.only(bottom: 10),
                           constraints: BoxConstraints(
-                            maxWidth: MediaQuery.of(context).size.width * 0.45,
+                            maxWidth: MediaQuery.of(context).size.width * 0.65,
                           ),
                           padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: resolvedBubbleColor,
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              if (chat.isGroup && !isSent) ...[
+                          decoration: isSent
+                              ? BoxDecoration(
+                                  gradient: LinearGradient(
+                                    colors: [
+                                      resolvedBubbleColor.withOpacity(0.85),
+                                      resolvedBubbleColor,
+                                    ],
+                                    begin: Alignment.topLeft,
+                                    end: Alignment.bottomRight,
+                                  ),
+                                  borderRadius: const BorderRadius.only(
+                                    topLeft: Radius.circular(16),
+                                    topRight: Radius.circular(16),
+                                    bottomLeft: Radius.circular(16),
+                                    bottomRight: Radius.zero,
+                                  ),
+                                  border: Border.all(
+                                    color: Colors.white.withOpacity(0.18),
+                                    width: 1,
+                                  ),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: resolvedBubbleColor.withOpacity(0.25),
+                                      blurRadius: 8,
+                                      offset: const Offset(0, 4),
+                                    ),
+                                  ],
+                                )
+                              : BoxDecoration(
+                                  color: Colors.white.withOpacity(isDark ? 0.08 : 0.65),
+                                  borderRadius: const BorderRadius.only(
+                                    topLeft: Radius.circular(16),
+                                    topRight: Radius.circular(16),
+                                    bottomLeft: Radius.zero,
+                                    bottomRight: Radius.circular(16),
+                                  ),
+                                  border: Border.all(
+                                    color: Colors.white.withOpacity(isDark ? 0.12 : 0.35),
+                                    width: 1,
+                                  ),
+                                ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                              if (widget.chat.isGroup && !isSent) ...[
                                 GestureDetector(
                                   onTap: () {
                                     showDialog<void>(
                                       context: context,
-                                      builder: (context) => UserProfileDialog(userId: message.senderId),
+                                      builder: (context) =>
+                                          UserProfileDialog(userId: message.senderId),
                                     );
                                   },
                                   child: MouseRegion(
                                     cursor: SystemMouseCursors.click,
                                     child: Text(
                                       _getSenderName(message.senderId),
-                                      style: const TextStyle(
-                                        color: Colors.white70,
+                                      style: TextStyle(
+                                        color: isDark ? Colors.white60 : Colors.black54,
                                         fontSize: 11,
                                         fontWeight: FontWeight.bold,
-                                        decoration: TextDecoration.underline, // adds premium clickability hint
+                                        decoration: TextDecoration.underline,
                                       ),
                                     ),
                                   ),
@@ -993,11 +2312,34 @@ class _ChatPanel extends StatelessWidget {
                                   sourceUrl: message.sourceUrl ?? '',
                                   previewPayload: message.previewPayload,
                                 ),
-                                const SizedBox(height: 6),
+                                const SizedBox(height: 4),
                               ],
-                              Text(
-                                message.text,
-                                style: const TextStyle(color: Colors.white),
+                              if (showText)
+                                RichMessageBubbleContent(
+                                  text: message.text,
+                                  isSent: isSent,
+                                  isDark: isDark,
+                                ),
+                              const SizedBox(height: 4),
+                              Align(
+                                alignment: Alignment.bottomRight,
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  mainAxisAlignment: MainAxisAlignment.end,
+                                  children: [
+                                    if (isSent) ...[
+                                      Text(
+                                        _formatTime(message.timestamp),
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          color: isDark ? Colors.white60 : Colors.black54,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 6),
+                                      _buildStatusTicks(message.status, resolvedBubbleColor, isDark),
+                                    ],
+                                  ],
+                                ),
                               ),
                             ],
                           ),
@@ -1006,44 +2348,190 @@ class _ChatPanel extends StatelessWidget {
                     },
                   ),
           ),
+          // ── Input bar ──
           SafeArea(
             top: false,
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+              padding: const EdgeInsets.fromLTRB(12, 6, 12, 12),
               child: Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
                   IconButton(
                     tooltip: 'Seleziona file da allegare',
-                    icon: const Icon(Icons.attach_file),
-                    onPressed: isUploading ? null : onAttachPressed,
+                    icon: Icon(
+                      Icons.attach_file_rounded,
+                      color: isDark ? Colors.white70 : Colors.black54,
+                    ),
+                    onPressed: widget.isUploading ? null : widget.onAttachPressed,
+                  ),
+                  IconButton(
+                    tooltip: widget.sendOnEnter ? 'Invio invia messaggio' : 'Invio inserisce newline',
+                    icon: Icon(
+                      widget.sendOnEnter ? Icons.keyboard_return : Icons.wrap_text,
+                      color: isDark ? Colors.white70 : Colors.black54,
+                    ),
+                    onPressed: widget.onToggleSendOnEnter,
+                  ),
+                  IconButton(
+                    tooltip: widget.isRecording ? 'Ferma registrazione' : 'Registra audio',
+                    icon: Icon(
+                      widget.isRecording ? Icons.stop : Icons.mic,
+                      color: widget.isRecording ? Colors.redAccent : (isDark ? Colors.white70 : Colors.black54),
+                    ),
+                    onPressed: widget.onRecordingPressed,
                   ),
                   const SizedBox(width: 4),
                   Expanded(
-                    child: TextField(
-                      controller: messageController,
-                      textInputAction: TextInputAction.send,
-                      onSubmitted: (_) => onSendPressed(),
-                      decoration: const InputDecoration(
-                        hintText: 'Scrivi un messaggio...',
-                        border: OutlineInputBorder(),
-                        contentPadding: EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 8,
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(isDark ? 0.06 : 0.55),
+                        borderRadius: BorderRadius.circular(24),
+                        border: Border.all(
+                          color: Colors.white.withOpacity(isDark ? 0.1 : 0.35),
+                          width: 1,
                         ),
+                      ),
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          if (widget.selectedFileName != null && !widget.selectedFileIsImage) ...[
+                            Padding(
+                              padding: const EdgeInsets.only(top: 6, bottom: 2),
+                              child: Row(
+                                children: [
+                                  Icon(
+                                    Icons.attach_file_rounded,
+                                    size: 14,
+                                    color: isDark ? Colors.white70 : Colors.black54,
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Expanded(
+                                    child: Text(
+                                      widget.selectedFileName!,
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: isDark ? Colors.white70 : Colors.black54,
+                                      ),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                  GestureDetector(
+                                    onTap: widget.onClearFilePressed,
+                                    child: Icon(
+                                      Icons.close_rounded,
+                                      size: 14,
+                                      color: isDark ? Colors.white54 : Colors.black45,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                          if (widget.selectedFileName != null && widget.selectedFileIsImage) ...[
+                            Padding(
+                              padding: const EdgeInsets.only(top: 6, bottom: 2),
+                              child: Stack(
+                                alignment: Alignment.topRight,
+                                children: [
+                                  ClipRRect(
+                                    borderRadius: BorderRadius.circular(10),
+                                    child: Image.file(
+                                      File(widget.selectedFilePath!),
+                                      height: 60,
+                                      width: 60,
+                                      fit: BoxFit.cover,
+                                    ),
+                                  ),
+                                  GestureDetector(
+                                    onTap: widget.onClearFilePressed,
+                                    child: Container(
+                                      margin: const EdgeInsets.all(2),
+                                      decoration: const BoxDecoration(
+                                        color: Colors.black54,
+                                        shape: BoxShape.circle,
+                                      ),
+                                      child: const Icon(Icons.close_rounded, size: 12, color: Colors.white),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                          if (widget.sendOnEnter)
+                            Shortcuts(
+                              shortcuts: const <ShortcutActivator, Intent>{
+                                SingleActivator(LogicalKeyboardKey.enter): ActivateIntent(),
+                              },
+                              child: Actions(
+                                actions: <Type, Action<Intent>>{
+                                  ActivateIntent: CallbackAction<ActivateIntent>(
+                                    onInvoke: (intent) {
+                                      widget.onSendPressed();
+                                      return null;
+                                    },
+                                  ),
+                                },
+                                child: TextField(
+                                  controller: widget.messageController,
+                                  style: TextStyle(color: isDark ? Colors.white : Colors.black87),
+                                  maxLines: 5,
+                                  minLines: 1,
+                                  keyboardType: TextInputType.multiline,
+                                  textInputAction: TextInputAction.newline,
+                                  decoration: InputDecoration(
+                                    hintText: widget.selectedFileName != null
+                                        ? 'Aggiungi una didascalia...'
+                                        : 'Scrivi un messaggio...',
+                                    hintStyle: TextStyle(color: isDark ? Colors.white38 : Colors.black38),
+                                    border: InputBorder.none,
+                                    contentPadding: const EdgeInsets.symmetric(vertical: 10),
+                                  ),
+                                  onSubmitted: (_) {
+                                    if (widget.sendOnEnter) widget.onSendPressed();
+                                  },
+                                ),
+                              ),
+                            )
+                          else
+                            TextField(
+                              controller: widget.messageController,
+                              style: TextStyle(color: isDark ? Colors.white : Colors.black87),
+                              maxLines: 5,
+                              minLines: 1,
+                              keyboardType: TextInputType.multiline,
+                              textInputAction: TextInputAction.newline,
+                              decoration: InputDecoration(
+                                hintText: widget.selectedFileName != null
+                                    ? 'Aggiungi una didascalia...'
+                                    : 'Scrivi un messaggio...',
+                                hintStyle: TextStyle(color: isDark ? Colors.white38 : Colors.black38),
+                                border: InputBorder.none,
+                                contentPadding: const EdgeInsets.symmetric(vertical: 10),
+                              ),
+                              onSubmitted: (_) {},
+                            ),
+                        ],
                       ),
                     ),
                   ),
                   const SizedBox(width: 8),
-                  IconButton(
-                    tooltip: 'Invia messaggio',
-                    onPressed: isSending ? null : onSendPressed,
-                    icon: isSending
+                  FloatingActionButton(
+                    mini: true,
+                    backgroundColor: resolvedBubbleColor,
+                    onPressed: widget.onSendPressed,
+                    child: widget.isUploading || widget.isSending
                         ? const SizedBox(
                             width: 18,
                             height: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2),
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                            ),
                           )
-                        : const Icon(Icons.send),
+                        : const Icon(Icons.send_rounded, color: Colors.white, size: 18),
                   ),
                 ],
               ),
@@ -1055,15 +2543,20 @@ class _ChatPanel extends StatelessWidget {
   }
 }
 
-class _SettingsPanel extends StatelessWidget {
-  const _SettingsPanel({
+class SettingsPanel extends StatelessWidget {
+  const SettingsPanel({
     required this.profile,
     required this.nicknameController,
     required this.selectedThemeColor,
+    required this.selectedBackgroundColor,
+    required this.selectedBackgroundImagePath,
     required this.selectedLanguageCode,
     required this.supportedLanguages,
     required this.presetColors,
     required this.onThemeColorChanged,
+    required this.onBackgroundColorChanged,
+    required this.onPickBackgroundImage,
+    required this.onClearBackgroundImage,
     required this.onLanguageChanged,
     required this.isSaving,
     required this.onSavePressed,
@@ -1072,29 +2565,36 @@ class _SettingsPanel extends StatelessWidget {
     required this.ringtonePath,
     required this.onPickRingtone,
     required this.onEditProfilePressed,
+    required this.onLogoutPressed,
   });
 
   final UserProfile profile;
   final TextEditingController nicknameController;
   final Color selectedThemeColor;
+  final Color selectedBackgroundColor;
+  final String? selectedBackgroundImagePath;
   final String selectedLanguageCode;
   final List<LanguageOption> supportedLanguages;
   final List<Color> presetColors;
   final ValueChanged<Color> onThemeColorChanged;
+  final ValueChanged<Color> onBackgroundColorChanged;
+  final VoidCallback onPickBackgroundImage;
+  final VoidCallback onClearBackgroundImage;
   final ValueChanged<String> onLanguageChanged;
   final bool isSaving;
   final Future<void> Function() onSavePressed;
-  
   final bool vibrationEnabled;
   final ValueChanged<bool> onVibrationToggled;
   final String? ringtonePath;
   final VoidCallback onPickRingtone;
   final VoidCallback onEditProfilePressed;
+  final VoidCallback onLogoutPressed;
 
   @override
   Widget build(BuildContext context) {
-    final ringtoneName = ringtonePath != null 
-        ? ringtonePath!.split('/').last.split('\\').last 
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final ringtoneName = ringtonePath != null
+        ? ringtonePath!.split('/').last.split('\\').last
         : 'Suoneria di sistema predefinita';
 
     return SingleChildScrollView(
@@ -1107,172 +2607,204 @@ class _SettingsPanel extends StatelessWidget {
             style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 16),
-          Card(
+          _GlassCard(
+            padding: EdgeInsets.zero,
             child: ListTile(
-              leading: const Icon(Icons.badge),
-              title: const Text('Il tuo ID utente'),
+              leading: const Icon(Icons.phone_rounded),
+              title: const Text('Il tuo numero di telefono'),
               subtitle: Text(
                 profile.id,
                 style: const TextStyle(
                   fontSize: 22,
                   fontWeight: FontWeight.bold,
-                  letterSpacing: 2,
+                  letterSpacing: 1.2,
                 ),
               ),
             ),
           ),
-          const SizedBox(height: 12),
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Lingua dei messaggi',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
-                  ),
-                  const SizedBox(height: 8),
-                  DropdownButtonFormField<String>(
-                    value: selectedLanguageCode,
-                    decoration: const InputDecoration(
-                      labelText: 'Lingua preferita',
-                      prefixIcon: Icon(Icons.language),
+          _GlassCard(
+            padding: EdgeInsets.zero,
+            child: ListTile(
+              leading: const Icon(Icons.person_rounded),
+              title: const Text('Modifica profilo'),
+              subtitle: const Text('Foto, bio, audio bio'),
+              trailing: const Icon(Icons.chevron_right_rounded),
+              onTap: onEditProfilePressed,
+            ),
+          ),
+          _GlassCard(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Colore principale app',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'Personalizza i dettagli e gli accenti visivi dell\'app',
+                  style: TextStyle(fontSize: 13, color: isDark ? Colors.white70 : Colors.black54),
+                ),
+                const SizedBox(height: 12),
+                RichColorBoard(
+                  selectedColor: selectedThemeColor,
+                  onColorSelected: onThemeColorChanged,
+                ),
+              ],
+            ),
+          ),
+          _GlassCard(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Personalizzazione Sfondo App',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'Imposta un colore solido personalizzato o una foto di sfondo sotto lo strato Crystal',
+                  style: TextStyle(fontSize: 13, color: isDark ? Colors.white70 : Colors.black54),
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: ChoiceChip(
+                        label: const Text('Bianco Classico'),
+                        selected: selectedBackgroundColor.value == 0xFFFFFFFF,
+                        onSelected: (_) => onBackgroundColorChanged(const Color(0xFFFFFFFF)),
+                      ),
                     ),
-                    items: supportedLanguages
-                        .map(
-                          (language) => DropdownMenuItem<String>(
-                            value: language.code,
-                            child: Text(language.label),
-                          ),
-                        )
-                        .toList(growable: false),
-                    onChanged: (value) {
-                      if (value != null) {
-                        onLanguageChanged(value);
-                      }
-                    },
-                  ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: ChoiceChip(
+                        label: const Text('Nero Assoluto'),
+                        selected: selectedBackgroundColor.value == 0xFF050505,
+                        onSelected: (_) => onBackgroundColorChanged(const Color(0xFF050505)),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                const Text(
+                  'Sfondo personalizzato a tinta unita:',
+                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                RichColorBoard(
+                  selectedColor: selectedBackgroundColor,
+                  onColorSelected: onBackgroundColorChanged,
+                ),
+                const SizedBox(height: 16),
+                const Divider(),
+                const SizedBox(height: 8),
+                const Text(
+                  'Immagine di sfondo:',
+                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: onPickBackgroundImage,
+                        icon: const Icon(Icons.image_rounded),
+                        label: const Text('Scegli immagine'),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: selectedBackgroundImagePath == null ? null : onClearBackgroundImage,
+                        icon: const Icon(Icons.delete_outline_rounded),
+                        label: const Text('Rimuovi'),
+                      ),
+                    ),
+                  ],
+                ),
+                if (selectedBackgroundImagePath != null) ...[
                   const SizedBox(height: 12),
                   Text(
-                    MessageTranslationService.supportsRuntimeTranslationOnCurrentPlatform
-                        ? 'I messaggi vengono tradotti sul dispositivo prima dell\'invio e dopo la ricezione.'
-                        : 'La traduzione automatica on-device è disponibile su Android/iOS. Su questa piattaforma i messaggi restano in inglese se la traduzione non è disponibile.',
+                    'Sfondo attivo: ${selectedBackgroundImagePath!.split('/').last.split('\\').last}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontSize: 12, color: isDark ? Colors.white70 : Colors.black54),
                   ),
                 ],
-              ),
+              ],
             ),
           ),
-          const SizedBox(height: 12),
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Profilo',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: nicknameController,
-                    decoration: const InputDecoration(
-                      labelText: 'Nickname',
-                      prefixIcon: Icon(Icons.person),
+          _GlassCard(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Lingua dei messaggi',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 8),
+                DropdownButtonFormField<String>(
+                  value: selectedLanguageCode,
+                  style: TextStyle(color: isDark ? Colors.white : Colors.black87),
+                  dropdownColor: isDark ? const Color(0xFF1E0308) : Colors.white,
+                  decoration: InputDecoration(
+                    labelText: 'Lingua preferita',
+                    labelStyle: TextStyle(color: isDark ? Colors.white70 : Colors.black54),
+                    prefixIcon: Icon(Icons.language, color: isDark ? Colors.white70 : Colors.black54),
+                    filled: true,
+                    fillColor: Colors.white.withOpacity(isDark ? 0.03 : 0.45),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(16),
+                      borderSide: BorderSide(color: Colors.white.withOpacity(isDark ? 0.08 : 0.3)),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(16),
+                      borderSide: BorderSide(color: selectedThemeColor, width: 1.5),
                     ),
                   ),
-                  const SizedBox(height: 12),
-                  SizedBox(
-                    width: double.infinity,
-                    child: OutlinedButton.icon(
-                      onPressed: onEditProfilePressed,
-                      icon: const Icon(Icons.edit_rounded, size: 18),
-                      label: const Text('Completa profilo (Foto, Bio, Audio Bio)'),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: 12),
-          // NEW Notification and Alerts Customization Card
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Notifiche & Avvisi',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
-                  ),
-                  const SizedBox(height: 12),
-                  SwitchListTile(
-                    title: const Text('Attiva Vibrazione'),
-                    subtitle: const Text('Pattern a doppio impulso all\'arrivo dei messaggi'),
-                    value: vibrationEnabled,
-                    onChanged: onVibrationToggled,
-                    secondary: const Icon(Icons.vibration),
-                    contentPadding: EdgeInsets.zero,
-                  ),
-                  const Divider(),
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: const Icon(Icons.audiotrack_rounded),
-                    title: const Text('Suoneria personalizzata'),
-                    subtitle: Text(
-                      ringtoneName,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontWeight: FontWeight.bold),
-                    ),
-                    trailing: ElevatedButton(
-                      onPressed: onPickRingtone,
-                      child: const Text('Scegli'),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: 12),
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Colore principale app',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      Container(
-                        width: 24,
-                        height: 24,
-                        decoration: BoxDecoration(
-                          color: selectedThemeColor,
-                          shape: BoxShape.circle,
+                  items: supportedLanguages
+                      .map(
+                        (language) => DropdownMenuItem<String>(
+                          value: language.code,
+                          child: Text(language.label,
+                              style: TextStyle(color: isDark ? Colors.white : Colors.black87)),
                         ),
-                      ),
-                      const SizedBox(width: 8),
-                      Text('#${selectedThemeColor.value.toRadixString(16).toUpperCase()}'),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  _ColorPalette(
-                    colors: presetColors,
-                    selectedColor: selectedThemeColor,
-                    onColorSelected: onThemeColorChanged,
-                  ),
-                ],
-              ),
+                      )
+                      .toList(growable: false),
+                  onChanged: (value) {
+                    if (value != null) onLanguageChanged(value);
+                  },
+                ),
+              ],
             ),
           ),
-          const SizedBox(height: 16),
+          _GlassCard(
+            child: Column(
+              children: [
+                Row(
+                  children: [
+                    const Icon(Icons.vibration_rounded),
+                    const SizedBox(width: 12),
+                    const Expanded(child: Text('Vibrazione notifiche')),
+                    Switch(
+                      value: vibrationEnabled,
+                      onChanged: onVibrationToggled,
+                    ),
+                  ],
+                ),
+                const Divider(height: 20),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.music_note_rounded),
+                  title: const Text('Suoneria notifiche'),
+                  subtitle: Text(ringtoneName, maxLines: 1, overflow: TextOverflow.ellipsis),
+                  trailing: TextButton(onPressed: onPickRingtone, child: const Text('Cambia')),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 4),
           SizedBox(
             width: double.infinity,
             child: ElevatedButton.icon(
@@ -1283,8 +2815,21 @@ class _SettingsPanel extends StatelessWidget {
                       height: 18,
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
-                  : const Icon(Icons.save),
+                  : const Icon(Icons.save_rounded),
               label: const Text('Salva impostazioni'),
+            ),
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              style: OutlinedButton.styleFrom(
+                foregroundColor: Colors.redAccent,
+                side: const BorderSide(color: Colors.redAccent),
+              ),
+              onPressed: onLogoutPressed,
+              icon: const Icon(Icons.logout_rounded),
+              label: const Text('Disconnetti account'),
             ),
           ),
         ],
@@ -1293,8 +2838,8 @@ class _SettingsPanel extends StatelessWidget {
   }
 }
 
-class _NewChatPanel extends StatelessWidget {
-  const _NewChatPanel({
+class NewChatPanel extends StatelessWidget {
+  const NewChatPanel({
     required this.currentUserId,
     required this.nameController,
     required this.idController,
@@ -1341,20 +2886,20 @@ class _NewChatPanel extends StatelessWidget {
           const SizedBox(height: 12),
           TextField(
             controller: idController,
-            keyboardType: TextInputType.number,
+            keyboardType: TextInputType.phone,
             inputFormatters: [
               FilteringTextInputFormatter.digitsOnly,
-              LengthLimitingTextInputFormatter(10),
+              LengthLimitingTextInputFormatter(15),
             ],
             decoration: const InputDecoration(
-              labelText: 'ID utente (10 cifre)',
-              prefixIcon: Icon(Icons.numbers),
-              hintText: '1234567890',
+              labelText: 'Numero di telefono (8-15 cifre)',
+              prefixIcon: Icon(Icons.phone_rounded),
+              hintText: '3391234567',
             ),
           ),
           const SizedBox(height: 6),
           Text(
-            'Il tuo ID: $currentUserId',
+            'Il tuo numero: $currentUserId',
             style: Theme.of(context).textTheme.bodySmall,
           ),
           const SizedBox(height: 16),
@@ -1363,19 +2908,17 @@ class _NewChatPanel extends StatelessWidget {
             style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
           ),
           const SizedBox(height: 8),
-          _ColorPalette(
-            colors: presetColors,
+          RichColorBoard(
             selectedColor: selectedBackgroundColor,
             onColorSelected: onBackgroundColorChanged,
           ),
           const SizedBox(height: 16),
           const Text(
-            'Colore messaggi',
+            'Colore bolle messaggi',
             style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
           ),
           const SizedBox(height: 8),
-          _ColorPalette(
-            colors: presetColors,
+          RichColorBoard(
             selectedColor: selectedBubbleColor,
             onColorSelected: onBubbleColorChanged,
           ),
@@ -1496,6 +3039,138 @@ class _ColorPalette extends StatelessWidget {
           ),
         );
       }).toList(growable: false),
+    );
+  }
+}
+
+class _GlassCard extends StatelessWidget {
+  const _GlassCard({required this.child, this.padding});
+  final Widget child;
+  final EdgeInsetsGeometry? padding;
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final outerRadius = BorderRadius.circular(24);
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      decoration: BoxDecoration(
+        borderRadius: outerRadius,
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: isDark
+              ? [
+                  Colors.white.withOpacity(0.16),
+                  Colors.white.withOpacity(0.05),
+                  Colors.black.withOpacity(0.12),
+                  Colors.black.withOpacity(0.22),
+                ]
+              : [
+                  Colors.white.withOpacity(0.72),
+                  Colors.white.withOpacity(0.32),
+                  Colors.black.withOpacity(0.06),
+                  Colors.black.withOpacity(0.12),
+                ],
+          stops: const [0.0, 0.38, 0.78, 1.0],
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(isDark ? 0.18 : 0.08),
+            blurRadius: 28,
+            offset: const Offset(0, 14),
+          ),
+          BoxShadow(
+            color: Colors.white.withOpacity(isDark ? 0.03 : 0.18),
+            blurRadius: 14,
+            offset: const Offset(-1, -1),
+          ),
+        ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(1.2),
+        child: ClipRRect(
+          borderRadius: outerRadius,
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+            child: Container(
+              color: Colors.white.withOpacity(isDark ? 0.06 : 0.16),
+              child: Padding(
+                padding: padding ?? const EdgeInsets.all(20),
+                child: child,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class RichMessageBubbleContent extends StatelessWidget {
+  const RichMessageBubbleContent({
+    super.key,
+    required this.text,
+    required this.isSent,
+    required this.isDark,
+  });
+  final String text;
+  final bool isSent;
+  final bool isDark;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!text.contains('```')) {
+      return Text(
+        text,
+        style: TextStyle(
+          color: isSent ? Colors.white : (isDark ? Colors.white : Colors.black87),
+        ),
+      );
+    }
+
+    final parts = text.split('```');
+    final List<Widget> children = [];
+
+    for (var i = 0; i < parts.length; i++) {
+      final part = parts[i];
+      if (i % 2 == 1) {
+        // Code block segment!
+        var code = part;
+        var lang = 'code';
+        final lines = part.split('\n');
+        if (lines.isNotEmpty && lines.first.trim().isNotEmpty && lines.first.trim().length < 15 && !lines.first.contains(' ')) {
+          lang = lines.first.trim();
+          code = lines.skip(1).join('\n');
+        }
+        children.add(
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            child: IdeCodeHighlightCanvas(
+              code: code.trim(),
+              fileName: 'snippet.$lang',
+            ),
+          ),
+        );
+      } else {
+        // Standard text segment
+        if (part.trim().isNotEmpty) {
+          children.add(
+            Text(
+              part,
+              style: TextStyle(
+                color: isSent ? Colors.white : (isDark ? Colors.white : Colors.black87),
+              ),
+            ),
+          );
+        }
+      }
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: children,
     );
   }
 }

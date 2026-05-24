@@ -72,14 +72,15 @@ void main() {
       );
     });
 
-    test('auth API returns and preserves 10-digit IDs by email', () async {
+    test('auth API returns and preserves 10-digit IDs by phone', () async {
       final registered = await AuthApi.register(
         name: 'Utente',
+        phone: '1234567890',
         email: 'utente@test.com',
         password: 'password',
       );
       final logged = await AuthApi.login(
-        email: 'utente@test.com',
+        phone: '1234567890',
         password: 'password',
       );
 

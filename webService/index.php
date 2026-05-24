@@ -1,6 +1,26 @@
 <?php
 header("Content-Type: application/json; charset=UTF-8");
 header("Access-Control-Allow-Methods: GET, POST, PATCH, OPTIONS");
+header("Access-Control-Allow-Origin: *");
+header("Access-Control-Allow-Headers: Content-Type, X-App-Key, X-App-Timestamp, X-App-Signature");
+
+// Register custom global exception handler to return JSON and HTTP 500
+set_exception_handler(function ($e) {
+    http_response_code(500);
+    echo json_encode([
+        "success" => false,
+        "error" => "Errore del server: " . $e->getMessage()
+    ]);
+    exit;
+});
+
+// Convert PHP errors/warnings to exceptions so they are caught by the handler
+set_error_handler(function ($severity, $message, $file, $line) {
+    if (!(error_reporting() & $severity)) {
+        return;
+    }
+    throw new ErrorException($message, 0, $severity, $file, $line);
+});
 
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     http_response_code(204);
@@ -11,6 +31,10 @@ require_once 'db.php';
 
 function is_ten_digit_id($value): bool {
     return is_string($value) && preg_match('/^\d{10}$/', $value) === 1;
+}
+
+function is_valid_phone_id($value): bool {
+    return (is_string($value) || is_numeric($value)) && preg_match('/^\d{10}$/', $value) === 1;
 }
 
 function get_signing_secrets(): array {
@@ -106,6 +130,16 @@ if (!is_array($input)) {
 if ($raw_input !== '') {
     error_log("Body length: " . strlen($raw_input));
 }
+// Controlla se è una richiesta per servire file statici (nessuna firma richiesta)
+if (
+    (isset($_GET['route']) && $_GET['route'] === 'serve_file') ||
+    strpos($_SERVER['REQUEST_URI'], 'route=serve_file') !== false ||
+    basename(explode('?', $_SERVER['REQUEST_URI'])[0]) === 'serve_file'
+) {
+    require 'serve_file.php';
+    exit;
+}
+
 validate_app_signature($raw_input);
 
 // Estrai l'endpoint dall'URL
@@ -121,9 +155,9 @@ if ($resource === 'index.php' || $resource === 'index' || $resource === 'webServ
 error_log("Risorsa calcolata per il routing: " . $resource);
 
 // Simulazione utente autenticato
-$current_user_id = $_GET['user_id'] ?? null;
+$current_user_id = isset($_GET['user_id']) ? str_replace(' ', '', $_GET['user_id']) : null;
 
-if ($current_user_id !== null && !is_ten_digit_id($current_user_id)) {
+if ($current_user_id !== null && !is_valid_phone_id($current_user_id)) {
     error_log("Errore: user_id non valido");
     http_response_code(400);
     echo json_encode(["error" => "user_id deve essere numerico e di 10 cifre"]);

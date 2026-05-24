@@ -8,7 +8,7 @@ import '../services/app_request_signer.dart';
 class AuthApi { 
   static const String _defaultUserName = 'Nuovo utente';
   static const String _defaultBaseUrl =
-      'https://927c-93-71-139-206.ngrok-free.app/index.php';
+      'https://1cdc-93-71-139-206.ngrok-free.app/index.php';
   static http.Client _client = http.Client();
   static String baseUrl = _defaultBaseUrl;
 
@@ -27,13 +27,13 @@ class AuthApi {
   }
 
   static Future<UserProfile> login({
-    required String email,
+    required String phone,
     required String password,
   }) async {
     final uri = Uri.parse('$baseUrl?route=auth');
     final body = jsonEncode({
       'action': 'login',
-      'email': email,
+      'phone': phone,
       'password': password,
     });
     final response = await _client.post(
@@ -56,7 +56,8 @@ class AuthApi {
 
   static Future<UserProfile> register({
     required String name,
-    required String email,
+    required String phone,
+    String? email,
     required String password,
     String preferredLanguageCode = 'en',
     String? profileBio,
@@ -73,7 +74,8 @@ class AuthApi {
     final body = jsonEncode({
       'action': 'register',
       'name': normalizedName,
-      'email': email,
+      'phone': phone,
+      'email': email ?? '',
       'password': password,
       'preferred_language': preferredLanguageCode,
       'profile_bio': profileBio,
@@ -215,8 +217,12 @@ class AuthApi {
     String? profileAudioUrl,
     double? profileAudioDurationSeconds,
   }) async {
-    final uri = Uri.parse('$baseUrl?route=settings').replace(
-      queryParameters: {'user_id': userId},
+    final parsedBase = Uri.parse('$baseUrl?route=settings');
+    final uri = parsedBase.replace(
+      queryParameters: {
+        ...parsedBase.queryParameters,
+        'user_id': userId,
+      },
     );
     final body = jsonEncode({
       'nickname': nickname,
@@ -227,10 +233,10 @@ class AuthApi {
       'profile_audio_duration_seconds': profileAudioDurationSeconds,
     });
 
-    final response = await _client.patch(
+    final response = await _client.post(
       uri,
       headers: AppRequestSigner.buildSignedHeaders(
-        method: 'PATCH',
+        method: 'POST',
         uri: uri,
         body: body,
         headers: const {
@@ -264,8 +270,12 @@ class AuthApi {
   }
 
   static Future<UserProfile> fetchUserProfile(String targetUserId) async {
-    final uri = Uri.parse('$baseUrl?route=settings').replace(
-      queryParameters: {'user_id': targetUserId},
+    final parsedBase = Uri.parse('$baseUrl?route=settings');
+    final uri = parsedBase.replace(
+      queryParameters: {
+        ...parsedBase.queryParameters,
+        'user_id': targetUserId,
+      },
     );
 
     final response = await _client.get(

@@ -1,7 +1,10 @@
 import 'dart:math';
 
+import 'user_profile.dart';
+
 class ChatMessage {
   const ChatMessage({
+    this.id,
     required this.text,
     required this.senderId,
     String? canonicalText,
@@ -11,11 +14,16 @@ class ChatMessage {
     this.sourceUrl,
     this.previewType,
     this.previewPayload,
+    this.status = 'sent',
+    this.timestamp,
   }) : canonicalText = canonicalText ?? text;
 
+  final String? id;
   final String text;
   final String senderId;
   final String canonicalText;
+  final String status; // 'sent', 'delivered', 'read'
+  final DateTime? timestamp;
 
   // File attachment properties
   final String? fileAttachmentId;
@@ -47,12 +55,12 @@ class ChatThread {
     if (!isValidTenDigitId(id)) {
       throw ArgumentError.value(id, 'id', 'Chat ID must be a 10-digit number');
     }
-    // Only require 10 digit participant ID for 1-to-1 chats, in group chats participantId can be an empty placeholder or creator
-    if (!isGroup && !isValidTenDigitId(participantId)) {
+    // Only require valid phone ID participant ID for 1-to-1 chats, in group chats participantId can be an empty placeholder or creator
+    if (!isGroup && !UserProfile.isValidPhoneId(participantId)) {
       throw ArgumentError.value(
         participantId,
         'participantId',
-        'Participant ID must be a 10-digit number for 1-to-1 chats',
+        'Participant ID must be a valid phone number (8-15 digits) for 1-to-1 chats',
       );
     }
   }

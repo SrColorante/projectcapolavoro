@@ -22,12 +22,6 @@
 	"dependencies" : 
 	[
 		{
-			"id" : "nsd_windows_plugin::@fd7bfbd99eb2a30ebb4c"
-		},
-		{
-			"id" : "record_windows_plugin::@d0ce0c6e4898e9563b3e"
-		},
-		{
 			"id" : "flutter_wrapper_plugin::@2bb09fbb03a373b2cb34"
 		},
 		{
@@ -43,10 +37,16 @@
 			"id" : "file_selector_windows_plugin::@24329985f05541c6c489"
 		},
 		{
-			"id" : "jni::@e0c969ff1a1072a2e9aa"
+			"id" : "nsd_windows_plugin::@fd7bfbd99eb2a30ebb4c"
+		},
+		{
+			"id" : "record_windows_plugin::@d0ce0c6e4898e9563b3e"
 		},
 		{
 			"id" : "url_launcher_windows_plugin::@82e8e937a0da8e6132e4"
+		},
+		{
+			"id" : "jni::@e0c969ff1a1072a2e9aa"
 		},
 		{
 			"id" : "ZERO_CHECK::@6890427a1f51a3e7e1df"
@@ -58,12 +58,6 @@
 	"orderDependencies" : 
 	[
 		{
-			"id" : "nsd_windows_plugin::@fd7bfbd99eb2a30ebb4c"
-		},
-		{
-			"id" : "record_windows_plugin::@d0ce0c6e4898e9563b3e"
-		},
-		{
 			"id" : "flutter_wrapper_plugin::@2bb09fbb03a373b2cb34"
 		},
 		{
@@ -79,10 +73,16 @@
 			"id" : "file_selector_windows_plugin::@24329985f05541c6c489"
 		},
 		{
-			"id" : "jni::@e0c969ff1a1072a2e9aa"
+			"id" : "nsd_windows_plugin::@fd7bfbd99eb2a30ebb4c"
+		},
+		{
+			"id" : "record_windows_plugin::@d0ce0c6e4898e9563b3e"
 		},
 		{
 			"id" : "url_launcher_windows_plugin::@82e8e937a0da8e6132e4"
+		},
+		{
+			"id" : "jni::@e0c969ff1a1072a2e9aa"
 		}
 	],
 	"paths" : 

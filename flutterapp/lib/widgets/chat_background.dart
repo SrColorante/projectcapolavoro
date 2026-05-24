@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import '../services/app_preferences.dart';
 
 class ChatBackground extends StatelessWidget {
   const ChatBackground({
@@ -19,9 +20,13 @@ class ChatBackground extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     DecorationImage? image;
+    final appBackgroundImagePath = AppPreferences.instance.backgroundImagePath;
+    final effectiveImagePath = (useDefaultTheme && (backgroundImagePath == null || backgroundImagePath!.trim().isEmpty))
+        ? appBackgroundImagePath
+        : backgroundImagePath;
     
-    if (backgroundImagePath != null && backgroundImagePath!.trim().isNotEmpty) {
-      final path = backgroundImagePath!.trim();
+    if (effectiveImagePath != null && effectiveImagePath.trim().isNotEmpty) {
+      final path = effectiveImagePath.trim();
       if (path.startsWith('http://') || path.startsWith('https://')) {
         image = DecorationImage(
           image: CachedNetworkImageProvider(path),
@@ -57,7 +62,9 @@ class ChatBackground extends StatelessWidget {
 
     return Container(
       decoration: BoxDecoration(
-        color: useDefaultTheme ? const Color(0xFFFFF5F6) : backgroundColor,
+        color: useDefaultTheme
+            ? Color(AppPreferences.instance.backgroundColorValue)
+            : backgroundColor,
         image: image,
       ),
       child: child,

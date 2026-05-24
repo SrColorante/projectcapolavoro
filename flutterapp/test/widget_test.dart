@@ -8,13 +8,22 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:flutterapp/app.dart';
+import 'package:flutterapp/screens/splash_screen.dart';
 
 void main() {
   testWidgets('Shows splash title on startup', (WidgetTester tester) async {
-    await tester.pumpWidget(const CrimsonChatApp());
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: SplashScreen(
+          nextScreen: SizedBox(),
+        ),
+      ),
+    );
 
-    expect(find.text('Crimson Chat'), findsOneWidget);
-    expect(find.byIcon(Icons.forum), findsOneWidget);
+    expect(find.text('Quice'), findsOneWidget);
+    expect(find.byIcon(Icons.forum_rounded), findsOneWidget);
+
+    // Let the delayed transition timer of the splash screen run and resolve
+    await tester.pump(const Duration(seconds: 5));
   });
 }

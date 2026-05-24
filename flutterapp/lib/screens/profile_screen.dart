@@ -10,6 +10,7 @@ import '../api/auth_api.dart';
 import '../api/chat_api.dart';
 import '../models/user_profile.dart';
 import '../services/api_exception_handler.dart';
+import '../services/app_preferences.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key, required this.profile});
@@ -43,11 +44,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
   bool _isAudioPlaying = false;
   StreamSubscription? _playerStateSub;
 
+  late String _preferredLanguageCode;
+
   @override
   void initState() {
     super.initState();
     _nicknameController = TextEditingController(text: widget.profile.nickname);
     _bioController = TextEditingController(text: widget.profile.profileBio ?? '');
+    _preferredLanguageCode = widget.profile.preferredLanguageCode.isEmpty
+        ? 'en'
+        : widget.profile.preferredLanguageCode;
 
     _playerStateSub = _audioPlayer.onPlayerStateChanged.listen((state) {
       if (mounted) {
@@ -153,7 +159,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
     if (path.startsWith('http://') || path.startsWith('https://')) {
       return path;
     }
-    final base = AuthApi.baseUrl;
+    var base = AuthApi.baseUrl;
+    if (base.endsWith('/index.php')) {
+      base = base.substring(0, base.length - '/index.php'.length);
+    } else if (base.endsWith('/index')) {
+      base = base.substring(0, base.length - '/index'.length);
+    }
     var cleanPath = path;
     if (base.endsWith('/webService') && path.startsWith('/webService/')) {
       cleanPath = path.substring('/webService'.length);
@@ -194,7 +205,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       final updatedProfile = await AuthApi.updateProfile(
         userId: widget.profile.id,
         nickname: _nicknameController.text.trim(),
-        preferredLanguageCode: widget.profile.preferredLanguageCode,
+        preferredLanguageCode: _preferredLanguageCode,
         profileBio: _bioController.text.trim(),
         profilePhotoUrl: photoUrl,
         profileAudioUrl: audioUrl,
@@ -220,6 +231,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final themeColor = Color(AppPreferences.instance.themeColorValue);
     ImageProvider? avatarImage;
     if (_localPhotoPath != null) {
       avatarImage = FileImage(File(_localPhotoPath!));
@@ -264,8 +276,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               bottom: 0,
                               right: 4,
                               child: Container(
-                                decoration: const BoxDecoration(
-                                  color: Color(0xFFDC143C),
+                                decoration: BoxDecoration(
+                                  color: themeColor,
                                   shape: BoxShape.circle,
                                 ),
                                 child: IconButton(
@@ -304,6 +316,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         ),
                       ),
                       const SizedBox(height: 12),
+                      
+                      // Language Selection Dropdown
+                      _buildLanguageDropdown(),
+                      const SizedBox(height: 20),
 
                       // Voice Bio Recording Section
                       Container(
@@ -353,7 +369,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                             : const Text('Nessuna biografia vocale salvata')),
                                   ),
                                   IconButton.filled(
-                                    style: IconButton.styleFrom(backgroundColor: const Color(0xFFDC143C)),
+                                    style: IconButton.styleFrom(backgroundColor: themeColor),
                                     icon: const Icon(Icons.mic, color: Colors.white),
                                     onPressed: _startRecording,
                                   ),
@@ -381,8 +397,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         child: ElevatedButton(
                           onPressed: _isLoading ? null : _saveProfile,
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFFDC143C),
-                            foregroundColor: Colors.white,
+                            backgroundColor: themeColor,
+                            foregroundColor: themeColor.computeLuminance() > 0.5 ? Colors.black87 : Colors.white,
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                           ),
                           child: _isLoading
@@ -402,6 +418,30 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildLanguageDropdown() {
+    return DropdownButtonFormField<String>(
+      value: _preferredLanguageCode,
+      decoration: const InputDecoration(
+        labelText: 'Lingua preferita',
+        prefixIcon: Icon(Icons.language_rounded),
+        border: OutlineInputBorder(),
+      ),
+      items: const [
+        DropdownMenuItem(value: 'it', child: Text('Italiano')),
+        DropdownMenuItem(value: 'en', child: Text('English')),
+        DropdownMenuItem(value: 'es', child: Text('Español')),
+        DropdownMenuItem(value: 'fr', child: Text('Français')),
+      ],
+      onChanged: (value) {
+        if (value != null) {
+          setState(() {
+            _preferredLanguageCode = value;
+          });
+        }
+      },
     );
   }
 }
