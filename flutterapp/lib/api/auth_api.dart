@@ -8,7 +8,7 @@ import '../services/app_request_signer.dart';
 class AuthApi { 
   static const String _defaultUserName = 'Nuovo utente';
   static const String _defaultBaseUrl =
-      'https://4f64-93-71-139-206.ngrok-free.app/index.php';
+      'https://927c-93-71-139-206.ngrok-free.app/index.php';
   static http.Client _client = http.Client();
   static String baseUrl = _defaultBaseUrl;
 
@@ -203,6 +203,113 @@ class AuthApi {
       twoFactorChannel: data['two_factor_channel']?.toString(),
       twoFactorDestination: data['two_factor_destination']?.toString(),
       isPecCertified: data['pec_certified'] == true,
+    );
+  }
+
+  static Future<UserProfile> updateProfile({
+    required String userId,
+    required String nickname,
+    required String preferredLanguageCode,
+    String? profileBio,
+    String? profilePhotoUrl,
+    String? profileAudioUrl,
+    double? profileAudioDurationSeconds,
+  }) async {
+    final uri = Uri.parse('$baseUrl?route=settings').replace(
+      queryParameters: {'user_id': userId},
+    );
+    final body = jsonEncode({
+      'nickname': nickname,
+      'preferred_language': preferredLanguageCode,
+      'profile_bio': profileBio ?? '',
+      'profile_photo_url': profilePhotoUrl ?? '',
+      'profile_audio_url': profileAudioUrl ?? '',
+      'profile_audio_duration_seconds': profileAudioDurationSeconds,
+    });
+
+    final response = await _client.patch(
+      uri,
+      headers: AppRequestSigner.buildSignedHeaders(
+        method: 'PATCH',
+        uri: uri,
+        body: body,
+        headers: const {
+          'Content-Type': 'application/json',
+          'ngrok-skip-browser-warning': 'true',
+          'User-Agent': 'QuiceApp/1.0.0',
+        },
+      ),
+      body: body,
+    );
+
+    if (response.statusCode >= 400) {
+      throw Exception('Errore salvataggio profilo (${response.statusCode}).');
+    }
+    final payload = jsonDecode(response.body);
+    if (payload['success'] != true) {
+      throw Exception(payload['error'] ?? 'Impossibile aggiornare le impostazioni.');
+    }
+    
+    return UserProfile(
+      id: userId,
+      name: nickname,
+      nickname: nickname,
+      email: '',
+      preferredLanguageCode: preferredLanguageCode,
+      profileBio: (profileBio == null || profileBio.isEmpty) ? null : profileBio,
+      profilePhotoUrl: (profilePhotoUrl == null || profilePhotoUrl.isEmpty) ? null : profilePhotoUrl,
+      profileAudioUrl: (profileAudioUrl == null || profileAudioUrl.isEmpty) ? null : profileAudioUrl,
+      profileAudioDurationSeconds: profileAudioDurationSeconds,
+    );
+  }
+
+  static Future<UserProfile> fetchUserProfile(String targetUserId) async {
+    final uri = Uri.parse('$baseUrl?route=settings').replace(
+      queryParameters: {'user_id': targetUserId},
+    );
+
+    final response = await _client.get(
+      uri,
+      headers: AppRequestSigner.buildSignedHeaders(
+        method: 'GET',
+        uri: uri,
+        body: '',
+        headers: const {
+          'ngrok-skip-browser-warning': 'true',
+          'User-Agent': 'QuiceApp/1.0.0',
+        },
+      ),
+    );
+
+    if (response.statusCode >= 400) {
+      throw Exception('Impossibile caricare il profilo (${response.statusCode}).');
+    }
+
+    final payload = jsonDecode(response.body);
+    if (payload['success'] != true) {
+      throw Exception(payload['error'] ?? 'Errore nel recupero dati profilo.');
+    }
+
+    final data = payload['data'] as Map<String, dynamic>;
+    final nickname = data['nickname']?.toString() ?? 'Utente $targetUserId';
+    final profileBio = data['profile_bio']?.toString();
+    final profilePhotoUrl = data['profile_photo_url']?.toString();
+    final profileAudioUrl = data['profile_audio_url']?.toString();
+    final profileAudioDurationRaw = data['profile_audio_duration_seconds'];
+    final profileAudioDuration = profileAudioDurationRaw is num
+        ? profileAudioDurationRaw.toDouble()
+        : double.tryParse(profileAudioDurationRaw?.toString() ?? '');
+
+    return UserProfile(
+      id: targetUserId,
+      name: nickname,
+      nickname: nickname,
+      email: '',
+      preferredLanguageCode: data['preferred_language']?.toString() ?? 'en',
+      profileBio: (profileBio == null || profileBio.isEmpty) ? null : profileBio,
+      profilePhotoUrl: (profilePhotoUrl == null || profilePhotoUrl.isEmpty) ? null : profilePhotoUrl,
+      profileAudioUrl: (profileAudioUrl == null || profileAudioUrl.isEmpty) ? null : profileAudioUrl,
+      profileAudioDurationSeconds: profileAudioDuration,
     );
   }
 }

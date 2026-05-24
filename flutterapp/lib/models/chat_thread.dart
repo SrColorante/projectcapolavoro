@@ -5,13 +5,28 @@ class ChatMessage {
     required this.text,
     required this.senderId,
     String? canonicalText,
+    this.fileAttachmentId,
+    this.fileName,
+    this.mimeType,
+    this.sourceUrl,
+    this.previewType,
+    this.previewPayload,
   }) : canonicalText = canonicalText ?? text;
 
   final String text;
   final String senderId;
   final String canonicalText;
 
+  // File attachment properties
+  final String? fileAttachmentId;
+  final String? fileName;
+  final String? mimeType;
+  final String? sourceUrl;
+  final String? previewType;
+  final Map<String, dynamic>? previewPayload;
+
   bool isSentBy(String userId) => senderId == userId;
+  bool get hasAttachment => fileAttachmentId != null;
 }
 
 class ChatThread {
@@ -20,17 +35,24 @@ class ChatThread {
     required this.title,
     required this.participantId,
     required this.messages,
+    this.isGroup = false,
+    this.createdBy,
+    this.avatarUrl,
+    this.members = const [],
     this.backgroundColorValue = 0xFFFFEEF1,
     this.bubbleColorValue = 0xFFDC143C,
+    this.backgroundImagePath,
+    this.useDefaultTheme = true,
   }) {
     if (!isValidTenDigitId(id)) {
       throw ArgumentError.value(id, 'id', 'Chat ID must be a 10-digit number');
     }
-    if (!isValidTenDigitId(participantId)) {
+    // Only require 10 digit participant ID for 1-to-1 chats, in group chats participantId can be an empty placeholder or creator
+    if (!isGroup && !isValidTenDigitId(participantId)) {
       throw ArgumentError.value(
         participantId,
         'participantId',
-        'Participant ID must be a 10-digit number',
+        'Participant ID must be a 10-digit number for 1-to-1 chats',
       );
     }
   }
@@ -39,8 +61,16 @@ class ChatThread {
   final String title;
   final String participantId;
   final List<ChatMessage> messages;
+  final bool isGroup;
+  final String? createdBy;
+  final String? avatarUrl;
+  final List<dynamic> members;
+  
+  // Customization per-chat
   final int backgroundColorValue;
   final int bubbleColorValue;
+  final String? backgroundImagePath;
+  final bool useDefaultTheme;
 
   static final RegExp _tenDigitIdRegex = RegExp(r'^\d{10}$');
 

@@ -1,11 +1,21 @@
+import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../api/chat_api.dart';
 import '../models/chat_thread.dart';
 import '../models/user_profile.dart';
+import '../services/api_exception_handler.dart';
 import '../services/app_preferences.dart';
 import '../services/message_translation_service.dart';
+import '../widgets/message_attachment_preview.dart';
+import '../widgets/chat_background.dart';
+import 'group_create_screen.dart';
+import 'profile_screen.dart';
+import '../widgets/user_profile_dialog.dart';
 
 enum _RightPaneView { settings, chat, newChat }
 
@@ -55,12 +65,21 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _isSendingMessage = false;
   bool _isCreatingChat = false;
   bool _isSavingSettings = false;
+  bool _isUploadingFile = false;
+  Color _currentChatBgColor = const Color(0xFFFFEEF1);
+  Color _currentChatBubbleColor = const Color(0xFFDC143C);
+  String? _currentChatBgImagePath;
+  bool _currentChatUseDefaultTheme = true;
+  bool _notificationsVibrationEnabled = true;
+  String? _notificationsRingtonePath;
+  late UserProfile _currentProfile;
 
   @override
   void initState() {
     super.initState();
+    _currentProfile = widget.profile;
     _chatApi = widget.chatApi ?? ChatApi();
-    _nicknameController = TextEditingController(text: widget.profile.nickname);
+    _nicknameController = TextEditingController(text: _currentProfile.nickname);
     _newChatNameController = TextEditingController();
     _newChatIdController = TextEditingController();
     _messageController = TextEditingController();
@@ -92,11 +111,42 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
+  Future<void> _openCreateGroupScreen() async {
+    final newGroupId = await Navigator.of(context).push<String>(
+      MaterialPageRoute<String>(
+        builder: (_) => GroupCreateScreen(currentUserId: _currentProfile.id),
+      ),
+    );
+
+    if (newGroupId != null && mounted) {
+      await _loadChats();
+      final matches = chats.where((c) => c.id == newGroupId).toList();
+      if (matches.isNotEmpty) {
+        await _selectChat(matches.first);
+      }
+    }
+  }
+
+  Future<void> _openEditProfileScreen() async {
+    final updatedProfile = await Navigator.of(context).push<UserProfile>(
+      MaterialPageRoute<UserProfile>(
+        builder: (_) => ProfileScreen(profile: _currentProfile),
+      ),
+    );
+
+    if (updatedProfile != null && mounted) {
+      setState(() {
+        _currentProfile = updatedProfile;
+        _nicknameController.text = updatedProfile.nickname;
+      });
+    }
+  }
+
   Future<void> _loadChats() async {
     setState(() => _isLoadingChats = true);
     try {
       final loadedChats =
-          await _chatApi.fetchChats(userId: widget.profile.id);
+          await _chatApi.fetchChats(userId: _currentProfile.id);
       if (!mounted) return;
       setState(() {
         chats = loadedChats;
@@ -107,7 +157,13 @@ class _HomeScreenState extends State<HomeScreen> {
         }
       });
     } catch (error) {
-      _showSnackBar('Errore durante il caricamento delle chat.');
+      if (mounted) {
+        ApiExceptionHandler.handleError(
+          context,
+          error,
+          onRetry: _loadChats,
+        );
+      }
     } finally {
       if (mounted) {
         setState(() => _isLoadingChats = false);
@@ -119,13 +175,19 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() => _isLoadingMessages = true);
     try {
       final messages = await _chatApi.fetchMessages(
-        userId: widget.profile.id,
+        userId: _currentProfile.id,
         chatId: chat.id,
       );
       if (!mounted) return;
       _replaceChat(chat, messages);
     } catch (error) {
-      _showSnackBar('Errore durante il caricamento dei messaggi.');
+      if (mounted) {
+        ApiExceptionHandler.handleError(
+          context,
+          error,
+          onRetry: () => _loadMessages(chat),
+        );
+      }
     } finally {
       if (mounted) {
         setState(() => _isLoadingMessages = false);
@@ -159,7 +221,55 @@ class _HomeScreenState extends State<HomeScreen> {
       selectedChat = chat;
       _rightPaneView = _RightPaneView.chat;
     });
+    await _loadChatCustomSettings(chat.id);
     await _loadMessages(chat);
+  }
+
+  Future<void> _loadChatCustomSettings(String chatId) async {
+    final prefs = await SharedPreferences.getInstance();
+    final jsonStr = prefs.getString('chat_settings_$chatId');
+    if (jsonStr != null) {
+      try {
+        final Map<String, dynamic> data = jsonDecode(jsonStr);
+        setState(() {
+          _currentChatBgColor = Color(data['backgroundColor'] ?? 0xFFFFEEF1);
+          _currentChatBubbleColor = Color(data['bubbleColor'] ?? 0xFFDC143C);
+          _currentChatBgImagePath = data['backgroundImagePath'];
+          _currentChatUseDefaultTheme = data['useDefaultTheme'] ?? false;
+        });
+        return;
+      } catch (_) {}
+    }
+    // Default to app settings
+    setState(() {
+      _currentChatBgColor = const Color(0xFFFFEEF1);
+      _currentChatBubbleColor = Color(AppPreferences.instance.themeColorValue);
+      _currentChatBgImagePath = null;
+      _currentChatUseDefaultTheme = true;
+    });
+  }
+
+  Future<void> _saveChatCustomSettings(
+    String chatId, {
+    required Color bgColor,
+    required Color bubbleColor,
+    required String? bgImagePath,
+    required bool useDefault,
+  }) async {
+    final prefs = await SharedPreferences.getInstance();
+    final Map<String, dynamic> data = {
+      'backgroundColor': bgColor.value,
+      'bubbleColor': bubbleColor.value,
+      'backgroundImagePath': bgImagePath,
+      'useDefaultTheme': useDefault,
+    };
+    await prefs.setString('chat_settings_$chatId', jsonEncode(data));
+    setState(() {
+      _currentChatBgColor = bgColor;
+      _currentChatBubbleColor = bubbleColor;
+      _currentChatBgImagePath = bgImagePath;
+      _currentChatUseDefaultTheme = useDefault;
+    });
   }
 
   Future<void> _createChat() async {
@@ -176,7 +286,7 @@ class _HomeScreenState extends State<HomeScreen> {
       return;
     }
 
-    if (participantId == widget.profile.id) {
+    if (participantId == _currentProfile.id) {
       _showSnackBar('Non puoi creare una chat con il tuo stesso ID');
       return;
     }
@@ -192,7 +302,7 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() => _isCreatingChat = true);
     try {
       final chatId = await _chatApi.createChat(
-        userId: widget.profile.id,
+        userId: _currentProfile.id,
         targetUserId: participantId,
       );
       final newChat = ChatThread(
@@ -213,7 +323,13 @@ class _HomeScreenState extends State<HomeScreen> {
       });
       await _loadMessages(newChat);
     } catch (error) {
-      _showSnackBar('Errore durante la creazione della chat.');
+      if (mounted) {
+        ApiExceptionHandler.handleError(
+          context,
+          error,
+          onRetry: _createChat,
+        );
+      }
     } finally {
       if (mounted) {
         setState(() => _isCreatingChat = false);
@@ -223,13 +339,41 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _applySavedPreferences() async {
     await AppPreferences.instance.load();
+    final prefs = await SharedPreferences.getInstance();
     if (!mounted) {
       return;
     }
     setState(() {
       _appThemeColor = Color(AppPreferences.instance.themeColorValue);
       _preferredLanguageCode = AppPreferences.instance.preferredLanguageCode;
+      _notificationsVibrationEnabled = prefs.getBool('notifications_vibration_enabled') ?? true;
+      _notificationsRingtonePath = prefs.getString('notifications_ringtone_path');
     });
+  }
+
+  Future<void> _toggleVibration(bool val) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('notifications_vibration_enabled', val);
+    setState(() {
+      _notificationsVibrationEnabled = val;
+    });
+  }
+
+  Future<void> _pickRingtone() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(type: FileType.audio);
+      if (result != null && result.files.single.path != null) {
+        final path = result.files.single.path!;
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('notifications_ringtone_path', path);
+        setState(() {
+          _notificationsRingtonePath = path;
+        });
+        _showSnackBar('Suoneria personalizzata impostata con successo!');
+      }
+    } catch (_) {
+      _showSnackBar('Impossibile selezionare la suoneria.');
+    }
   }
 
   Future<void> _saveSettings() async {
@@ -266,22 +410,222 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() => _isSendingMessage = true);
     try {
       await _chatApi.sendMessage(
-        userId: widget.profile.id,
+        userId: _currentProfile.id,
         receiverId: chat.participantId,
         text: text,
         chatId: chat.id,
       );
       final updatedMessages = List<ChatMessage>.from(chat.messages)
-        ..add(ChatMessage(text: text, senderId: widget.profile.id));
+        ..add(ChatMessage(text: text, senderId: _currentProfile.id));
       _replaceChat(chat, updatedMessages);
       _messageController.clear();
     } catch (error) {
-      _showSnackBar('Errore durante l\'invio del messaggio.');
+      if (mounted) {
+        ApiExceptionHandler.handleError(
+          context,
+          error,
+          onRetry: _sendMessage,
+        );
+      }
     } finally {
       if (mounted) {
         setState(() => _isSendingMessage = false);
       }
     }
+  }
+
+  Future<void> _pickAndSendFile() async {
+    final chat = selectedChat;
+    if (chat == null) return;
+
+    try {
+      final result = await FilePicker.platform.pickFiles();
+      if (result == null || result.files.single.path == null) return;
+
+      final path = result.files.single.path!;
+      final file = File(path);
+      final size = await file.length();
+
+      String? adminPassword;
+      bool overrideLimit = false;
+
+      // Limit check (50 MB = 52428800 bytes)
+      if (size > 52428800) {
+        final password = await _showBypassDialog();
+        if (password == null) {
+          _showSnackBar('Upload annullato: file superiore a 50MB.');
+          return;
+        }
+        adminPassword = password;
+        overrideLimit = true;
+      }
+
+      setState(() => _isUploadingFile = true);
+
+      // Upload file real binary
+      final attachmentData = await _chatApi.uploadFile(
+        userId: _currentProfile.id,
+        filePath: path,
+        adminPassword: adminPassword,
+        overrideLimit: overrideLimit,
+      );
+
+      final attachmentId = attachmentData['id']?.toString();
+      if (attachmentId == null) {
+        throw Exception('Errore nel ricevere ID allegato dal server.');
+      }
+
+      // Send message with file attachment linked
+      await _chatApi.sendMessage(
+        userId: _currentProfile.id,
+        receiverId: chat.participantId,
+        text: 'Allegato: ${attachmentData['file_name']}',
+        chatId: chat.id,
+        fileAttachmentId: attachmentId,
+      );
+
+      // Reload
+      await _loadMessages(chat);
+      _showSnackBar('File inviato con successo!');
+    } catch (error) {
+      if (mounted) {
+        ApiExceptionHandler.handleError(context, error);
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isUploadingFile = false);
+      }
+    }
+  }
+
+  Future<String?> _showBypassDialog() async {
+    final controller = TextEditingController();
+    return showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: const Text('Bypass Limite 50MB'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Il file selezionato supera il limite di 50MB.\nInserisci la password di amministrazione per forzare l\'upload:',
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: controller,
+              obscureText: true,
+              decoration: const InputDecoration(
+                labelText: 'Password bypass admin',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(null),
+            child: const Text('ANNULLA'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(context).pop(controller.text),
+            child: const Text('INVIA'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showCustomisationDialog(ChatThread chat) {
+    Color tempBgColor = _currentChatBgColor;
+    Color tempBubbleColor = _currentChatBubbleColor;
+    String? tempBgImagePath = _currentChatBgImagePath;
+    bool tempUseDefault = _currentChatUseDefaultTheme;
+
+    final imageController = TextEditingController(text: tempBgImagePath);
+
+    showDialog<void>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Personalizza questa Chat'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SwitchListTile(
+                  title: const Text('Usa tema predefinito'),
+                  value: tempUseDefault,
+                  onChanged: (val) {
+                    setDialogState(() {
+                      tempUseDefault = val;
+                      if (val) {
+                        tempBgColor = const Color(0xFFFFEEF1);
+                        tempBubbleColor = Color(AppPreferences.instance.themeColorValue);
+                        tempBgImagePath = null;
+                        imageController.clear();
+                      }
+                    });
+                  },
+                ),
+                if (!tempUseDefault) ...[
+                  const Divider(),
+                  const Text('Colore sfondo', style: TextStyle(fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 8),
+                  _ColorPalette(
+                    colors: _presetColors,
+                    selectedColor: tempBgColor,
+                    onColorSelected: (color) => setDialogState(() => tempBgColor = color),
+                  ),
+                  const SizedBox(height: 16),
+                  const Text('Colore messaggi', style: TextStyle(fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 8),
+                  _ColorPalette(
+                    colors: _presetColors,
+                    selectedColor: tempBubbleColor,
+                    onColorSelected: (color) => setDialogState(() => tempBubbleColor = color),
+                  ),
+                  const SizedBox(height: 16),
+                  const Text('Immagine di sfondo (URL o asset)', style: TextStyle(fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: imageController,
+                    decoration: const InputDecoration(
+                      hintText: 'https://example.com/image.jpg o assets/bg.jpg',
+                      border: OutlineInputBorder(),
+                    ),
+                    onChanged: (val) => tempBgImagePath = val,
+                  ),
+                ],
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('ANNULLA'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                await _saveChatCustomSettings(
+                  chat.id,
+                  bgColor: tempBgColor,
+                  bubbleColor: tempBubbleColor,
+                  bgImagePath: tempBgImagePath,
+                  useDefault: tempUseDefault,
+                );
+                if (mounted) {
+                  Navigator.of(context).pop();
+                }
+              },
+              child: const Text('SALVA'),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   void _showSnackBar(String message) {
@@ -310,15 +654,22 @@ class _HomeScreenState extends State<HomeScreen> {
     if (_rightPaneView == _RightPaneView.chat && selectedChat != null) {
       return _ChatPanel(
         chat: selectedChat!,
-        currentUserId: widget.profile.id,
+        currentUserId: _currentProfile.id,
         isLoading: _isLoadingMessages,
         isSending: _isSendingMessage,
+        isUploading: _isUploadingFile,
         messageController: _messageController,
         onSendPressed: _sendMessage,
+        onAttachPressed: _pickAndSendFile,
+        customBgColor: _currentChatBgColor,
+        customBubbleColor: _currentChatBubbleColor,
+        customBgImagePath: _currentChatBgImagePath,
+        customUseDefaultTheme: _currentChatUseDefaultTheme,
+        onCustomisePressed: () => _showCustomisationDialog(selectedChat!),
       );
     }
     return _SettingsPanel(
-      profile: widget.profile,
+      profile: _currentProfile,
       nicknameController: _nicknameController,
       selectedThemeColor: _appThemeColor,
       selectedLanguageCode: _preferredLanguageCode,
@@ -332,6 +683,11 @@ class _HomeScreenState extends State<HomeScreen> {
       },
       isSaving: _isSavingSettings,
       onSavePressed: _saveSettings,
+      vibrationEnabled: _notificationsVibrationEnabled,
+      onVibrationToggled: _toggleVibration,
+      ringtonePath: _notificationsRingtonePath,
+      onPickRingtone: _pickRingtone,
+      onEditProfilePressed: _openEditProfileScreen,
     );
   }
 
@@ -363,6 +719,11 @@ class _HomeScreenState extends State<HomeScreen> {
                           tooltip: 'Impostazioni',
                           onPressed: _openSettings,
                           icon: const Icon(Icons.settings),
+                        ),
+                        IconButton(
+                          tooltip: 'Nuovo gruppo',
+                          onPressed: _openCreateGroupScreen,
+                          icon: const Icon(Icons.group_add_outlined),
                         ),
                         IconButton(
                           tooltip: 'Nuova chat',
@@ -458,24 +819,118 @@ class _ChatPanel extends StatelessWidget {
     required this.currentUserId,
     required this.isLoading,
     required this.isSending,
+    required this.isUploading,
     required this.messageController,
     required this.onSendPressed,
+    required this.onAttachPressed,
+    required this.customBgColor,
+    required this.customBubbleColor,
+    required this.customBgImagePath,
+    required this.customUseDefaultTheme,
+    required this.onCustomisePressed,
   });
 
   final ChatThread chat;
   final String currentUserId;
   final bool isLoading;
   final bool isSending;
+  final bool isUploading;
   final TextEditingController messageController;
   final VoidCallback onSendPressed;
+  final VoidCallback onAttachPressed;
+  final Color customBgColor;
+  final Color customBubbleColor;
+  final String? customBgImagePath;
+  final bool customUseDefaultTheme;
+  final VoidCallback onCustomisePressed;
+
+  String _getSenderName(String senderId) {
+    for (final member in chat.members) {
+      if (member is Map) {
+        final id = member['IDutente']?.toString();
+        if (id == senderId) {
+          final nick = member['nickname']?.toString();
+          if (nick != null && nick.isNotEmpty) {
+            return nick;
+          }
+          final name = member['nome']?.toString();
+          if (name != null && name.isNotEmpty) {
+            return name;
+          }
+        }
+      }
+    }
+    return 'Utente $senderId';
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      color: Color(chat.backgroundColorValue),
+    final resolvedBubbleColor = customUseDefaultTheme 
+        ? Color(chat.bubbleColorValue) 
+        : customBubbleColor;
+
+    return ChatBackground(
+      backgroundColor: customBgColor,
+      backgroundImagePath: customBgImagePath,
+      useDefaultTheme: customUseDefaultTheme,
       child: Column(
         children: [
-          if (isLoading) const LinearProgressIndicator(minHeight: 2),
+          // Sleek visual top header
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.9),
+              border: const Border(bottom: BorderSide(color: Colors.black12)),
+            ),
+            child: Row(
+              children: [
+                GestureDetector(
+                  onTap: () {
+                    if (!chat.isGroup) {
+                      showDialog<void>(
+                        context: context,
+                        builder: (context) => UserProfileDialog(userId: chat.participantId),
+                      );
+                    }
+                  },
+                  child: MouseRegion(
+                    cursor: chat.isGroup ? SystemMouseCursors.basic : SystemMouseCursors.click,
+                    child: CircleAvatar(
+                      backgroundColor: resolvedBubbleColor,
+                      child: Text(
+                        chat.isGroup 
+                            ? (chat.title.isNotEmpty ? chat.title[0].toUpperCase() : 'G')
+                            : (chat.title.length > 5 ? chat.title.substring(5, 6).toUpperCase() : 'U'),
+                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        chat.title,
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                      ),
+                      Text(
+                        chat.isGroup ? '${chat.members.length} partecipanti' : 'ID: ${chat.participantId}',
+                        style: const TextStyle(fontSize: 12, color: Colors.grey),
+                      ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Personalizza sfondo e colori',
+                  icon: const Icon(Icons.palette_rounded, color: Colors.black87),
+                  onPressed: onCustomisePressed,
+                ),
+              ],
+            ),
+          ),
+          if (isLoading || isUploading) const LinearProgressIndicator(minHeight: 2),
           Expanded(
             child: chat.messages.isEmpty
                 ? const Center(
@@ -500,12 +955,51 @@ class _ChatPanel extends StatelessWidget {
                           ),
                           padding: const EdgeInsets.all(12),
                           decoration: BoxDecoration(
-                            color: Color(chat.bubbleColorValue),
+                            color: resolvedBubbleColor,
                             borderRadius: BorderRadius.circular(12),
                           ),
-                          child: Text(
-                            message.text,
-                            style: const TextStyle(color: Colors.white),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              if (chat.isGroup && !isSent) ...[
+                                GestureDetector(
+                                  onTap: () {
+                                    showDialog<void>(
+                                      context: context,
+                                      builder: (context) => UserProfileDialog(userId: message.senderId),
+                                    );
+                                  },
+                                  child: MouseRegion(
+                                    cursor: SystemMouseCursors.click,
+                                    child: Text(
+                                      _getSenderName(message.senderId),
+                                      style: const TextStyle(
+                                        color: Colors.white70,
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.bold,
+                                        decoration: TextDecoration.underline, // adds premium clickability hint
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                              ],
+                              if (message.hasAttachment) ...[
+                                MessageAttachmentPreview(
+                                  previewType: message.previewType ?? 'file',
+                                  fileName: message.fileName ?? 'allegato',
+                                  mimeType: message.mimeType ?? 'application/octet-stream',
+                                  sourceUrl: message.sourceUrl ?? '',
+                                  previewPayload: message.previewPayload,
+                                ),
+                                const SizedBox(height: 6),
+                              ],
+                              Text(
+                                message.text,
+                                style: const TextStyle(color: Colors.white),
+                              ),
+                            ],
                           ),
                         ),
                       );
@@ -518,6 +1012,12 @@ class _ChatPanel extends StatelessWidget {
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
               child: Row(
                 children: [
+                  IconButton(
+                    tooltip: 'Seleziona file da allegare',
+                    icon: const Icon(Icons.attach_file),
+                    onPressed: isUploading ? null : onAttachPressed,
+                  ),
+                  const SizedBox(width: 4),
                   Expanded(
                     child: TextField(
                       controller: messageController,
@@ -567,6 +1067,11 @@ class _SettingsPanel extends StatelessWidget {
     required this.onLanguageChanged,
     required this.isSaving,
     required this.onSavePressed,
+    required this.vibrationEnabled,
+    required this.onVibrationToggled,
+    required this.ringtonePath,
+    required this.onPickRingtone,
+    required this.onEditProfilePressed,
   });
 
   final UserProfile profile;
@@ -579,9 +1084,19 @@ class _SettingsPanel extends StatelessWidget {
   final ValueChanged<String> onLanguageChanged;
   final bool isSaving;
   final Future<void> Function() onSavePressed;
+  
+  final bool vibrationEnabled;
+  final ValueChanged<bool> onVibrationToggled;
+  final String? ringtonePath;
+  final VoidCallback onPickRingtone;
+  final VoidCallback onEditProfilePressed;
 
   @override
   Widget build(BuildContext context) {
+    final ringtoneName = ringtonePath != null 
+        ? ringtonePath!.split('/').last.split('\\').last 
+        : 'Suoneria di sistema predefinita';
+
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
       child: Column(
@@ -665,6 +1180,56 @@ class _SettingsPanel extends StatelessWidget {
                     decoration: const InputDecoration(
                       labelText: 'Nickname',
                       prefixIcon: Icon(Icons.person),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: onEditProfilePressed,
+                      icon: const Icon(Icons.edit_rounded, size: 18),
+                      label: const Text('Completa profilo (Foto, Bio, Audio Bio)'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          // NEW Notification and Alerts Customization Card
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Notifiche & Avvisi',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+                  ),
+                  const SizedBox(height: 12),
+                  SwitchListTile(
+                    title: const Text('Attiva Vibrazione'),
+                    subtitle: const Text('Pattern a doppio impulso all\'arrivo dei messaggi'),
+                    value: vibrationEnabled,
+                    onChanged: onVibrationToggled,
+                    secondary: const Icon(Icons.vibration),
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                  const Divider(),
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.audiotrack_rounded),
+                    title: const Text('Suoneria personalizzata'),
+                    subtitle: Text(
+                      ringtoneName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    trailing: ElevatedButton(
+                      onPressed: onPickRingtone,
+                      child: const Text('Scegli'),
                     ),
                   ),
                 ],
