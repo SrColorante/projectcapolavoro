@@ -5,6 +5,7 @@ import '../api/auth_api.dart';
 import '../services/api_exception_handler.dart';
 import '../services/message_translation_service.dart';
 import 'home_screen.dart';
+import '../services/app_preferences.dart';
 
 class AuthScreen extends StatefulWidget {
   const AuthScreen({super.key});
@@ -18,6 +19,7 @@ class _AuthScreenState extends State<AuthScreen> with SingleTickerProviderStateM
   bool isLoading = false;
   String _preferredLanguageCode = 'en';
   final formKey = GlobalKey<FormState>();
+  final phoneController = TextEditingController();
   final emailController = TextEditingController();
   final passwordController = TextEditingController();
   final nameController = TextEditingController();
@@ -36,6 +38,7 @@ class _AuthScreenState extends State<AuthScreen> with SingleTickerProviderStateM
 
   @override
   void dispose() {
+    phoneController.dispose();
     emailController.dispose();
     passwordController.dispose();
     nameController.dispose();
@@ -48,17 +51,22 @@ class _AuthScreenState extends State<AuthScreen> with SingleTickerProviderStateM
     
     setState(() => isLoading = true);
     try {
+      final phone = phoneController.text.trim().replaceAll(' ', '');
+      final password = passwordController.text.trim();
       final profile = isLogin
           ? await AuthApi.login(
-              email: emailController.text.trim(),
-              password: passwordController.text.trim(),
+              phone: phone,
+              password: password,
             )
           : await AuthApi.register(
               name: nameController.text.trim(),
-              email: emailController.text.trim(),
-              password: passwordController.text.trim(),
+              phone: phone,
+              email: emailController.text.trim().isEmpty ? null : emailController.text.trim(),
+              password: password,
               preferredLanguageCode: _preferredLanguageCode,
             );
+
+      await AppPreferences.instance.saveUserSession(phone, password, profile);
 
       if (!mounted) return;
       Navigator.of(context).pushReplacement(
@@ -77,52 +85,57 @@ class _AuthScreenState extends State<AuthScreen> with SingleTickerProviderStateM
     }
   }
 
-  Future<void> _continueAsGuest() async {
-    setState(() => isLoading = true);
-    try {
-      final profile = await AuthApi.guestLogin(
-        name: nameController.text.trim().isEmpty ? 'Ospite' : nameController.text.trim(),
-        preferredLanguageCode: _preferredLanguageCode,
-      );
-      if (!mounted) return;
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute<void>(
-          builder: (_) => HomeScreen(profile: profile),
-        ),
-      );
-    } catch (error) {
-      if (mounted) {
-        ApiExceptionHandler.handleError(context, error, onRetry: _continueAsGuest);
-      }
-    } finally {
-      if (mounted) {
-        setState(() => isLoading = false);
-      }
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
     final size = MediaQuery.of(context).size;
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final canPop = Navigator.of(context).canPop();
+    final themeColor = Color(AppPreferences.instance.themeColorValue);
 
     return Scaffold(
       body: Stack(
         children: [
-          // Elegant dark crimson dynamic gradient background
+          // Elegant neutral Crystal UI dynamic gradient background
           Container(
             width: double.infinity,
             height: double.infinity,
             decoration: BoxDecoration(
               gradient: LinearGradient(
                 colors: isDark
-                    ? [const Color(0xFF1E0308), const Color(0xFF4A0E17), const Color(0xFF0F0103)]
-                    : [const Color(0xFFE52D27), const Color(0xFFB31217), const Color(0xFF70060A)],
+                    ? [const Color(0xFF000000), const Color(0xFF0C0C0E), const Color(0xFF121212)]
+                    : [const Color(0xFFFFFFFF), const Color(0xFFF6F6F9), const Color(0xFFEAEAEE)],
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
               ),
             ),
           ),
+          
+          if (canPop)
+            Positioned(
+              top: 24,
+              left: 24,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(16),
+                child: BackdropFilter(
+                  filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.08),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(
+                        color: Colors.white.withOpacity(0.2),
+                        width: 1.5,
+                      ),
+                    ),
+                    child: IconButton(
+                      icon: const Icon(Icons.arrow_back_rounded, color: Colors.white),
+                      onPressed: () => Navigator.of(context).pop(),
+                    ),
+                  ),
+                ),
+              ),
+            ),
           
           // Subtle decorative floating circles for glassmorphism contrast
           Positioned(
@@ -130,7 +143,7 @@ class _AuthScreenState extends State<AuthScreen> with SingleTickerProviderStateM
             left: size.width * 0.15,
             child: _FloatingCircle(
               size: 150,
-              color: const Color(0xFFFF4D6D).withOpacity(0.35),
+              color: Color(AppPreferences.instance.themeColorValue).withOpacity(0.25),
             ),
           ),
           Positioned(
@@ -138,7 +151,7 @@ class _AuthScreenState extends State<AuthScreen> with SingleTickerProviderStateM
             right: size.width * 0.15,
             child: _FloatingCircle(
               size: 220,
-              color: const Color(0xFFDC143C).withOpacity(0.25),
+              color: Color(AppPreferences.instance.themeColorValue).withOpacity(0.18),
             ),
           ),
 
@@ -188,32 +201,44 @@ class _AuthScreenState extends State<AuthScreen> with SingleTickerProviderStateM
                                       child: child,
                                     );
                                   },
-                                  child: Container(
-                                    padding: const EdgeInsets.all(16),
-                                    decoration: BoxDecoration(
-                                      color: Colors.white.withOpacity(0.2),
-                                      shape: BoxShape.circle,
-                                      border: Border.all(
-                                        color: Colors.white.withOpacity(0.4),
-                                        width: 1,
-                                      ),
-                                    ),
-                                    child: const Icon(
-                                      Icons.forum_rounded,
-                                      color: Colors.white,
-                                      size: 46,
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(height: 16),
-                                const Text(
-                                  'Crimson Chat',
-                                  style: TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 28,
-                                    fontWeight: FontWeight.bold,
-                                    letterSpacing: 0.5,
-                                  ),
+                                   child: Container(
+                                     width: 96,
+                                     height: 96,
+                                     decoration: BoxDecoration(
+                                       shape: BoxShape.circle,
+                                       gradient: LinearGradient(
+                                         begin: Alignment.topLeft,
+                                         end: Alignment.bottomRight,
+                                         colors: [
+                                           Colors.white.withOpacity(isDark ? 0.28 : 0.68),
+                                           Colors.white.withOpacity(isDark ? 0.06 : 0.16),
+                                         ],
+                                       ),
+                                       border: Border.all(
+                                         color: Colors.white.withOpacity(isDark ? 0.5 : 0.9),
+                                         width: 1.8,
+                                       ),
+                                       boxShadow: [
+                                         BoxShadow(
+                                           color: Colors.black.withOpacity(isDark ? 0.45 : 0.14),
+                                           blurRadius: 18,
+                                           offset: const Offset(0, 9),
+                                         ),
+                                         BoxShadow(
+                                           color: themeColor.withOpacity(isDark ? 0.3 : 0.2),
+                                           blurRadius: 22,
+                                           spreadRadius: -2,
+                                         ),
+                                       ],
+                                     ),
+                                     child: Center(
+                                       child: Icon(
+                                         Icons.chat_bubble_outline_rounded,
+                                         color: isDark ? Colors.white : themeColor,
+                                         size: 46,
+                                       ),
+                                     ),
+                                   ),
                                 ),
                                 const SizedBox(height: 24),
                                 
@@ -277,17 +302,32 @@ class _AuthScreenState extends State<AuthScreen> with SingleTickerProviderStateM
                                           const SizedBox(height: 16),
                                         ],
                                         _buildTextField(
-                                          controller: emailController,
-                                          label: 'Indirizzo Email',
-                                          icon: Icons.email_rounded,
-                                          keyboardType: TextInputType.emailAddress,
+                                          controller: phoneController,
+                                          label: 'Numero di telefono',
+                                          icon: Icons.phone_rounded,
+                                          keyboardType: TextInputType.phone,
                                           validator: (val) {
-                                            if (val == null || val.trim().isEmpty) return 'Inserisci l\'email';
-                                            if (!val.contains('@')) return 'Inserisci un\'email valida';
+                                            if (val == null || val.trim().isEmpty) return 'Inserisci il numero di telefono';
+                                            if (int.tryParse(val.trim()) == null) return 'Inserisci solo cifre numeriche';
                                             return null;
                                           },
                                         ),
                                         const SizedBox(height: 16),
+                                        if (!isLogin) ...[
+                                          _buildTextField(
+                                            controller: emailController,
+                                            label: 'Indirizzo Email (Opzionale)',
+                                            icon: Icons.email_rounded,
+                                            keyboardType: TextInputType.emailAddress,
+                                            validator: (val) {
+                                              if (val != null && val.trim().isNotEmpty && !val.contains('@')) {
+                                                return 'Inserisci un\'email valida';
+                                              }
+                                              return null;
+                                            },
+                                          ),
+                                          const SizedBox(height: 16),
+                                        ],
                                         _buildTextField(
                                           controller: passwordController,
                                           label: 'Password',
@@ -304,70 +344,41 @@ class _AuthScreenState extends State<AuthScreen> with SingleTickerProviderStateM
                                 const SizedBox(height: 32),
 
                                 // ELEVATED MAIN SUBMIT BUTTON
-                                SizedBox(
-                                  width: double.infinity,
-                                  height: 52,
-                                  child: ElevatedButton(
-                                    onPressed: isLoading ? null : _submit,
-                                    style: ElevatedButton.styleFrom(
-                                      foregroundColor: const Color(0xFF8B0000),
-                                      backgroundColor: Colors.white,
-                                      elevation: 4,
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(16),
-                                      ),
-                                      shadowColor: Colors.black.withOpacity(0.3),
-                                    ),
-                                    child: isLoading
-                                        ? const SizedBox(
-                                            height: 24,
-                                            width: 24,
-                                            child: CircularProgressIndicator(
-                                              strokeWidth: 2.5,
-                                              valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF8B0000)),
-                                            ),
-                                          )
-                                        : Text(
-                                            isLogin ? 'ACCEDI' : 'REGISTRATI',
-                                            style: const TextStyle(
-                                              fontSize: 16,
-                                              fontWeight: FontWeight.bold,
-                                              letterSpacing: 0.8,
-                                            ),
-                                          ),
-                                  ),
-                                ),
-                                const SizedBox(height: 16),
-
-                                // OUTLINED CONTINUE AS GUEST BUTTON
-                                if (!isLogin) ...[
-                                  SizedBox(
-                                    width: double.infinity,
-                                    height: 50,
-                                    child: OutlinedButton.icon(
-                                      onPressed: isLoading ? null : _continueAsGuest,
-                                      style: OutlinedButton.styleFrom(
-                                        foregroundColor: Colors.white,
-                                        side: BorderSide(
-                                          color: Colors.white.withOpacity(0.6),
-                                          width: 1.5,
-                                        ),
-                                        shape: RoundedRectangleBorder(
-                                          borderRadius: BorderRadius.circular(16),
-                                        ),
-                                      ),
-                                      icon: const Icon(Icons.person_outline_rounded, size: 20),
-                                      label: const Text(
-                                        'Continua come Ospite',
-                                        style: TextStyle(
-                                          fontSize: 15,
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                  const SizedBox(height: 20),
-                                ],
+                                 SizedBox(
+                                   width: double.infinity,
+                                   height: 52,
+                                   child: ElevatedButton(
+                                     onPressed: isLoading ? null : _submit,
+                                     style: ElevatedButton.styleFrom(
+                                       foregroundColor: themeColor.computeLuminance() > 0.5 ? Colors.black87 : Colors.white,
+                                       backgroundColor: themeColor,
+                                       elevation: 4,
+                                       shape: RoundedRectangleBorder(
+                                         borderRadius: BorderRadius.circular(16),
+                                       ),
+                                       shadowColor: themeColor.withOpacity(0.3),
+                                     ),
+                                     child: isLoading
+                                         ? SizedBox(
+                                             height: 24,
+                                             width: 24,
+                                             child: CircularProgressIndicator(
+                                               strokeWidth: 2.5,
+                                               valueColor: AlwaysStoppedAnimation<Color>(
+                                                 themeColor.computeLuminance() > 0.5 ? Colors.black87 : Colors.white,
+                                               ),
+                                             ),
+                                           )
+                                         : Text(
+                                             isLogin ? 'ACCEDI' : 'REGISTRATI',
+                                             style: const TextStyle(
+                                               fontSize: 16,
+                                               fontWeight: FontWeight.bold,
+                                               letterSpacing: 0.8,
+                                             ),
+                                           ),
+                                   ),
+                                 ),
 
                                 // Semantic information note
                                 const Text(
@@ -443,10 +454,11 @@ class _AuthScreenState extends State<AuthScreen> with SingleTickerProviderStateM
   }
 
   Widget _buildLanguageDropdown() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return DropdownButtonFormField<String>(
       value: _preferredLanguageCode,
-      style: const TextStyle(color: Colors.white),
-      dropdownColor: const Color(0xFF70060A),
+      style: TextStyle(color: isDark ? Colors.white : Colors.black87),
+      dropdownColor: isDark ? const Color(0xFF161618) : Colors.white,
       decoration: InputDecoration(
         labelText: 'Lingua app preferita',
         labelStyle: TextStyle(color: Colors.white.withOpacity(0.8)),

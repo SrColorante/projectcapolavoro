@@ -17,11 +17,14 @@ class FakeChatApi extends ChatApi {
   }
 
   @override
-  Future<List<ChatMessage>> fetchMessages({
+  Future<MessagesFetchResult> fetchMessages({
     required String userId,
     required String chatId,
   }) async {
-    return _chats.firstWhere((chat) => chat.id == chatId).messages;
+    return MessagesFetchResult(
+      messages: _chats.firstWhere((chat) => chat.id == chatId).messages,
+      typingUsers: const [],
+    );
   }
 
   @override

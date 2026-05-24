@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
 import '../api/chat_api.dart';
 import '../models/user_profile.dart';
+import '../models/chat_thread.dart';
 import '../services/api_exception_handler.dart';
+import '../services/app_preferences.dart';
 
 class GroupCreateScreen extends StatefulWidget {
-  const GroupCreateScreen({super.key, required this.currentUserId});
+  const GroupCreateScreen({super.key, required this.currentUserId, required this.existingChats});
   final String currentUserId;
+  final List<ChatThread> existingChats;
 
   @override
   State<GroupCreateScreen> createState() => _GroupCreateScreenState();
@@ -19,20 +22,23 @@ class _GroupCreateScreenState extends State<GroupCreateScreen> {
   final _chatApi = ChatApi();
   bool _isLoading = false;
 
-  // Preset list of contacts
-  final List<Map<String, String>> _contacts = [
-    {'id': '1234567890', 'name': 'Mario Rossi'},
-    {'id': '1234567891', 'name': 'Luca Bianchi'},
-    {'id': '1234567892', 'name': 'Giulia Verdi'},
-  ];
+  // Dynamic list of contacts
+  final List<Map<String, String>> _contacts = [];
 
   final Set<String> _selectedMemberIds = {};
 
   @override
   void initState() {
     super.initState();
-    // Exclude current user from selectable contacts
-    _contacts.removeWhere((c) => c['id'] == widget.currentUserId);
+    // Exclude current user and build contact list from existing 1-to-1 chats
+    for (final chat in widget.existingChats) {
+      if (!chat.isGroup && chat.participantId != widget.currentUserId) {
+        _contacts.add({
+          'id': chat.participantId,
+          'name': chat.title,
+        });
+      }
+    }
   }
 
   @override
@@ -53,7 +59,7 @@ class _GroupCreateScreenState extends State<GroupCreateScreen> {
   }
 
   void _addCustomId() {
-    final customId = _customIdController.text.trim();
+    final customId = _customIdController.text.trim().replaceAll(' ', '');
     if (!UserProfile.isValidTenDigitId(customId)) {
       ApiExceptionHandler.showSnackBarError(context, 'L\'ID deve essere numerico e di 10 cifre.');
       return;
@@ -106,6 +112,7 @@ class _GroupCreateScreenState extends State<GroupCreateScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final themeColor = Color(AppPreferences.instance.themeColorValue);
     return Scaffold(
       appBar: AppBar(
         title: const Text('Crea Nuovo Gruppo'),
@@ -161,7 +168,7 @@ class _GroupCreateScreenState extends State<GroupCreateScreen> {
                               subtitle: Text('ID: $contactId'),
                               value: isSelected,
                               onChanged: (_) => _toggleMember(contactId),
-                              activeColor: const Color(0xFFDC143C),
+                              activeColor: themeColor,
                             );
                           },
                         ),
@@ -181,7 +188,7 @@ class _GroupCreateScreenState extends State<GroupCreateScreen> {
                           ),
                           const SizedBox(width: 8),
                           IconButton.filled(
-                            style: IconButton.styleFrom(backgroundColor: const Color(0xFFDC143C)),
+                            style: IconButton.styleFrom(backgroundColor: themeColor),
                             icon: const Icon(Icons.add, color: Colors.white),
                             onPressed: _addCustomId,
                           ),
@@ -193,8 +200,8 @@ class _GroupCreateScreenState extends State<GroupCreateScreen> {
                         child: ElevatedButton(
                           onPressed: _isLoading ? null : _createGroup,
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFFDC143C),
-                            foregroundColor: Colors.white,
+                            backgroundColor: themeColor,
+                            foregroundColor: themeColor.computeLuminance() > 0.5 ? Colors.black87 : Colors.white,
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                           ),
                           child: _isLoading

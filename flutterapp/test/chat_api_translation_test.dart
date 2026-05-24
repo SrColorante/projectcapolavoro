@@ -97,8 +97,8 @@ void main() {
         chatId: '2345678901',
       );
 
-      expect(messages.single.text, 'Ciao mondo');
-      expect(messages.single.canonicalText, 'Hello world');
+      expect(messages.messages.single.text, 'Ciao mondo');
+      expect(messages.messages.single.canonicalText, 'Hello world');
     });
   });
 }

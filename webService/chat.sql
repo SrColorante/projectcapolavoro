@@ -7,7 +7,7 @@ CREATE TABLE utenti (
     nome VARCHAR(20) BINARY NOT NULL,
     cognome VARCHAR(100) BINARY NOT NULL,
     nickname VARCHAR(50) BINARY NOT NULL,
-    email VARCHAR(120) BINARY NOT NULL UNIQUE,
+    email VARCHAR(120) BINARY NULL UNIQUE,
     password_hash VARCHAR(255) BINARY NOT NULL,
     dataCreazione DATE NOT NULL,
     is_guest TINYINT(1) NOT NULL DEFAULT 0,
@@ -22,7 +22,7 @@ CREATE TABLE utenti (
     two_factor_destination VARCHAR(190) BINARY NULL,
     two_factor_verified_at DATETIME NULL,
     pec_certified_at DATETIME NULL,
-    CONSTRAINT CHK_IDUTENTE_10_DIGITS CHECK (IDutente BETWEEN 1000000000 AND 9999999999)
+    CONSTRAINT CHK_IDUTENTE_PHONE CHECK (IDutente BETWEEN 1000000000 AND 9999999999)
 );
 
 CREATE TABLE chat (
@@ -63,9 +63,7 @@ CREATE TABLE messaggi (
     CONSTRAINT FK_SENDER FOREIGN KEY (senderID) REFERENCES utenti(IDutente),
     CONSTRAINT FK_RECEIVER FOREIGN KEY (reciverID) REFERENCES utenti(IDutente),
     CONSTRAINT FK_MSG_CHAT FOREIGN KEY (chat_id) REFERENCES chat(IDchat) ON DELETE CASCADE,
-    CONSTRAINT FK_MSG_FILE FOREIGN KEY (file_attachment_id) REFERENCES shared_files(id) ON DELETE SET NULL,
-    CONSTRAINT CHK_SENDER_10_DIGITS CHECK (senderID BETWEEN 1000000000 AND 9999999999),
-    CONSTRAINT CHK_RECEIVER_10_DIGITS CHECK (reciverID BETWEEN 1000000000 AND 9999999999)
+    CONSTRAINT FK_MSG_FILE FOREIGN KEY (file_attachment_id) REFERENCES shared_files(id) ON DELETE SET NULL
 );
 
 CREATE INDEX idx_messaggi_chat ON messaggi(chat_id);
@@ -102,16 +100,16 @@ CREATE TABLE shared_files (
 CREATE INDEX idx_shared_files_message ON shared_files(message_id);
 
 INSERT INTO utenti (IDutente, nome, cognome, nickname, email, password_hash, dataCreazione) VALUES
-    (1234567890, 'Mario', 'Rossi', 'mario.rossi', 'mario.rossi@test.com', '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', '2024-01-10'),
-    (1234567891, 'Luca', 'Bianchi', 'luca.b', 'luca.bianchi@test.com', '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', '2024-02-05'),
-    (1234567892, 'Giulia', 'Verdi', 'giulia.v', 'giulia.verdi@test.com', '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', '2024-03-02');
+    (3391234567, 'Mario', 'Rossi', 'mario.rossi', 'mario.rossi@test.com', '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', '2024-01-10'),
+    (3391234568, 'Luca', 'Bianchi', 'luca.b', 'luca.bianchi@test.com', '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', '2024-02-05'),
+    (3391234569, 'Giulia', 'Verdi', 'giulia.v', 'giulia.verdi@test.com', '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', '2024-03-02');
 
 INSERT INTO chat (IDchat, utente1, utente2) VALUES
-    (2345678901, 1234567890, 1234567891),
-    (2345678902, 1234567890, 1234567892);
+    (2345678901, 3391234567, 3391234568),
+    (2345678902, 3391234567, 3391234569);
 
 INSERT INTO messaggi (textmessage, senderID, reciverID, timenow) VALUES
-    ('Ciao Luca! Hai visto il nuovo progetto?', 1234567890, 1234567891, '2024-04-01 09:10:00'),
-    ('Sì, l''ho appena aperto. È davvero interessante!', 1234567891, 1234567890, '2024-04-01 09:12:00'),
-    ('Giulia, ti va una call oggi pomeriggio?', 1234567890, 1234567892, '2024-04-01 10:30:00'),
-    ('Certo! Dopo le 15 va bene.', 1234567892, 1234567890, '2024-04-01 10:33:00');
+    ('Ciao Luca! Hai visto il nuovo progetto?', 3391234567, 3391234568, '2024-04-01 09:10:00'),
+    ('Sì, l''ho appena aperto. È davvero interessante!', 3391234568, 3391234567, '2024-04-01 09:12:00'),
+    ('Giulia, ti va una call oggi pomeriggio?', 3391234567, 3391234569, '2024-04-01 10:30:00'),
+    ('Certo! Dopo le 15 va bene.', 3391234569, 3391234567, '2024-04-01 10:33:00');

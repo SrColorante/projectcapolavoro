@@ -7,6 +7,7 @@ import 'package:http/http.dart' as http;
 import 'package:nsd/nsd.dart';
 
 import '../models/chat_thread.dart';
+import '../models/user_profile.dart';
 import 'app_request_signer.dart';
 import 'offline_message_store.dart';
 
@@ -66,7 +67,7 @@ class P2PSyncService {
       final chatId = link['chatId']?.toString() ?? '';
       final participantId = link['participantId']?.toString() ?? '';
       if (!ChatThread.isValidTenDigitId(chatId) ||
-          !ChatThread.isValidTenDigitId(participantId)) {
+          !UserProfile.isValidPhoneId(participantId)) {
         continue;
       }
       final messages = await buildLocalMessages(userId: userId, chatId: chatId);
@@ -383,14 +384,14 @@ class P2PSyncService {
     final userRaw = txt is Map<String, Uint8List?> ? txt['user'] : null;
     if (userRaw != null && userRaw.isNotEmpty) {
       final candidate = utf8.decode(userRaw);
-      if (RegExp(r'^\d{10}$').hasMatch(candidate)) {
+      if (RegExp(r'^\d{8,15}$').hasMatch(candidate)) {
         return candidate;
       }
     }
     final name = service.name ?? '';
     if (name.startsWith('cp-')) {
       final candidate = name.substring(3);
-      if (RegExp(r'^\d{10}$').hasMatch(candidate)) {
+      if (RegExp(r'^\d{8,15}$').hasMatch(candidate)) {
         return candidate;
       }
     }

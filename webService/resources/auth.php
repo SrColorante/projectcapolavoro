@@ -6,6 +6,7 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 }
 
 $action = $input['action'] ?? null;
+$phone = str_replace(' ', '', trim($input['phone'] ?? ''));
 $email = trim($input['email'] ?? '');
 $password = $input['password'] ?? '';
 $name = trim($input['name'] ?? '');
@@ -122,15 +123,17 @@ if ($action === 'guest_login') {
     exit;
 }
 
-if ($email === '' || $password === '') {
-    http_response_code(400);
-    echo json_encode(["error" => "Specificare email e password"]);
-    exit;
+if ($action === 'login') {
+    if ($phone === '' || $password === '') {
+        http_response_code(400);
+        echo json_encode(["error" => "Specificare numero di telefono e password"]);
+        exit;
+    }
 }
 
-function authenticate_user_or_fail(PDO $pdo, string $email, string $password): array {
-    $stmt = $pdo->prepare("SELECT * FROM utenti WHERE email = ?");
-    $stmt->execute([$email]);
+function authenticate_user_or_fail(PDO $pdo, string $phone, string $password): array {
+    $stmt = $pdo->prepare("SELECT * FROM utenti WHERE IDutente = ?");
+    $stmt->execute([$phone]);
     $user = $stmt->fetch();
     if (!$user || !password_verify($password, $user['password_hash'])) {
         http_response_code(401);
@@ -141,23 +144,40 @@ function authenticate_user_or_fail(PDO $pdo, string $email, string $password): a
 }
 
 if ($action === 'login') {
-    $user = authenticate_user_or_fail($pdo, $email, $password);
+    $user = authenticate_user_or_fail($pdo, $phone, $password);
 
     echo json_encode(["success" => true, "data" => build_profile($user)]);
     exit;
 }
 
 if ($action === 'register') {
-    $stmt = $pdo->prepare("SELECT 1 FROM utenti WHERE email = ?");
-    $stmt->execute([$email]);
-    if ($stmt->fetchColumn()) {
-        http_response_code(409);
-        echo json_encode(["error" => "Email già registrata"]);
+    if ($phone === '' || $password === '') {
+        http_response_code(400);
+        echo json_encode(["error" => "Specificare numero di telefono e password"]);
         exit;
     }
 
+    // Check if phone number is already registered (since IDutente is the phone number)
+    $stmt = $pdo->prepare("SELECT 1 FROM utenti WHERE IDutente = ?");
+    $stmt->execute([$phone]);
+    if ($stmt->fetchColumn()) {
+        http_response_code(409);
+        echo json_encode(["error" => "Numero di telefono già registrato"]);
+        exit;
+    }
+
+    // If optional email is provided, check if it's already registered
+    if ($email !== '') {
+        $stmt = $pdo->prepare("SELECT 1 FROM utenti WHERE email = ?");
+        $stmt->execute([$email]);
+        if ($stmt->fetchColumn()) {
+            http_response_code(409);
+            echo json_encode(["error" => "Email già registrata"]);
+            exit;
+        }
+    }
+
     $normalized_name = $name === '' ? 'Nuovo utente' : $name;
-    $user_id = generate_unique_user_id($pdo);
     $password_hash = password_hash($password, PASSWORD_BCRYPT);
 
     $stmt = $pdo->prepare("INSERT INTO utenti (
@@ -168,11 +188,11 @@ if ($action === 'register') {
                            )
                            VALUES (?, ?, ?, ?, ?, ?, CURDATE(), ?, ?, ?, ?, ?, ?, ?, ?, ?)");
     $stmt->execute([
-        $user_id,
+        $phone,
         $normalized_name,
         'Utente',
         $normalized_name,
-        $email,
+        $email === '' ? null : $email,
         $password_hash,
         $normalized_language,
         $normalized_bio,
@@ -186,10 +206,10 @@ if ($action === 'register') {
     ]);
 
     $user = [
-        'IDutente' => $user_id,
+        'IDutente' => $phone,
         'nome' => $normalized_name,
         'nickname' => $normalized_name,
-        'email' => $email,
+        'email' => $email === '' ? null : $email,
         'preferred_language' => $normalized_language,
         'profile_bio' => $normalized_bio,
         'profile_photo_url' => $normalized_photo,
@@ -206,7 +226,7 @@ if ($action === 'register') {
 }
 
 if ($action === 'enable_2fa') {
-    authenticate_user_or_fail($pdo, $email, $password);
+    authenticate_user_or_fail($pdo, $phone, $password);
     if ($normalized_2fa_channel === null || $normalized_2fa_destination === null) {
         http_response_code(400);
         echo json_encode(["error" => "Specificare canale e destinazione per la 2FA"]);
@@ -217,18 +237,18 @@ if ($action === 'enable_2fa') {
                            SET two_factor_enabled = 1,
                                two_factor_channel = ?,
                                two_factor_destination = ?
-                           WHERE email = ?");
-    $stmt->execute([$normalized_2fa_channel, $normalized_2fa_destination, $email]);
+                           WHERE IDutente = ?");
+    $stmt->execute([$normalized_2fa_channel, $normalized_2fa_destination, $phone]);
     echo json_encode(["success" => true, "message" => "2FA abilitata"]);
     exit;
 }
 
 if ($action === 'certify_pec') {
-    authenticate_user_or_fail($pdo, $email, $password);
+    authenticate_user_or_fail($pdo, $phone, $password);
     $stmt = $pdo->prepare("UPDATE utenti
                            SET pec_certified_at = NOW()
-                           WHERE email = ? AND two_factor_enabled = 1");
-    $stmt->execute([$email]);
+                           WHERE IDutente = ? AND two_factor_enabled = 1");
+    $stmt->execute([$phone]);
     if ($stmt->rowCount() === 0) {
         http_response_code(400);
         echo json_encode(["error" => "Per la certificazione è necessaria la 2FA abilitata"]);

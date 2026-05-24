@@ -2,10 +2,10 @@
 	"artifacts" : 
 	[
 		{
-			"path" : "runner/Release/flutterapp.exe"
+			"path" : "runner/Profile/flutterapp.exe"
 		},
 		{
-			"path" : "runner/Release/flutterapp.pdb"
+			"path" : "runner/Profile/flutterapp.pdb"
 		}
 	],
 	"backtrace" : 1,
@@ -443,14 +443,6 @@
 	"dependencies" : 
 	[
 		{
-			"backtrace" : 10,
-			"id" : "nsd_windows_plugin::@fd7bfbd99eb2a30ebb4c"
-		},
-		{
-			"backtrace" : 11,
-			"id" : "record_windows_plugin::@d0ce0c6e4898e9563b3e"
-		},
-		{
 			"backtrace" : 4,
 			"id" : "flutter_wrapper_app::@2bb09fbb03a373b2cb34"
 		},
@@ -467,6 +459,14 @@
 			"id" : "file_selector_windows_plugin::@24329985f05541c6c489"
 		},
 		{
+			"backtrace" : 10,
+			"id" : "nsd_windows_plugin::@fd7bfbd99eb2a30ebb4c"
+		},
+		{
+			"backtrace" : 11,
+			"id" : "record_windows_plugin::@d0ce0c6e4898e9563b3e"
+		},
+		{
 			"backtrace" : 12,
 			"id" : "url_launcher_windows_plugin::@82e8e937a0da8e6132e4"
 		},
@@ -481,7 +481,7 @@
 		[
 			{
 				"backtrace" : 3,
-				"path" : "C:/Users/crist/Desktop/g/projectcapolavoro/build/runner/Release"
+				"path" : "C:/Users/crist/Desktop/g/projectcapolavoro/build/runner/Profile"
 			}
 		],
 		"prefix" : 
@@ -507,7 +507,7 @@
 			},
 			{
 				"backtrace" : 4,
-				"fragment" : "..\\flutter\\Release\\flutter_wrapper_app.lib",
+				"fragment" : "..\\flutter\\Profile\\flutter_wrapper_app.lib",
 				"role" : "libraries"
 			},
 			{
@@ -517,27 +517,27 @@
 			},
 			{
 				"backtrace" : 8,
-				"fragment" : "..\\plugins\\audioplayers_windows\\Release\\audioplayers_windows_plugin.lib",
+				"fragment" : "..\\plugins\\audioplayers_windows\\Profile\\audioplayers_windows_plugin.lib",
 				"role" : "libraries"
 			},
 			{
 				"backtrace" : 9,
-				"fragment" : "..\\plugins\\file_selector_windows\\Release\\file_selector_windows_plugin.lib",
+				"fragment" : "..\\plugins\\file_selector_windows\\Profile\\file_selector_windows_plugin.lib",
 				"role" : "libraries"
 			},
 			{
 				"backtrace" : 10,
-				"fragment" : "..\\plugins\\nsd_windows\\Release\\nsd_windows_plugin.lib",
+				"fragment" : "..\\plugins\\nsd_windows\\Profile\\nsd_windows_plugin.lib",
 				"role" : "libraries"
 			},
 			{
 				"backtrace" : 11,
-				"fragment" : "..\\plugins\\record_windows\\Release\\record_windows_plugin.lib",
+				"fragment" : "..\\plugins\\record_windows\\Profile\\record_windows_plugin.lib",
 				"role" : "libraries"
 			},
 			{
 				"backtrace" : 12,
-				"fragment" : "..\\plugins\\url_launcher_windows\\Release\\url_launcher_windows_plugin.lib",
+				"fragment" : "..\\plugins\\url_launcher_windows\\Profile\\url_launcher_windows_plugin.lib",
 				"role" : "libraries"
 			},
 			{
