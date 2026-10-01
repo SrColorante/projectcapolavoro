@@ -163,6 +163,7 @@ class _UserProfileDetailContentState extends State<UserProfileDetailContent> {
         await _audioPlayer.play(UrlSource(_resolveUrl(audioUrl)));
       }
     } catch (_) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Impossibile riprodurre la biografia audio.')),
       );
@@ -256,7 +257,7 @@ class _UserProfileDetailContentState extends State<UserProfileDetailContent> {
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: isDark ? Colors.white.withOpacity(0.04) : Colors.grey[100],
+              color: isDark ? Colors.white.withValues(alpha: 0.04) : Colors.grey[100],
               borderRadius: BorderRadius.circular(12),
               border: Border.all(color: isDark ? Colors.white24 : Colors.black12),
             ),

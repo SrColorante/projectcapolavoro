@@ -32,7 +32,7 @@ class ChatBackground extends StatelessWidget {
           image: CachedNetworkImageProvider(path),
           fit: BoxFit.cover,
           colorFilter: ColorFilter.mode(
-            Colors.black.withOpacity(0.15),
+            Colors.black.withValues(alpha: 0.15),
             BlendMode.dstATop,
           ),
         );
@@ -41,7 +41,7 @@ class ChatBackground extends StatelessWidget {
           image: AssetImage(path),
           fit: BoxFit.cover,
           colorFilter: ColorFilter.mode(
-            Colors.black.withOpacity(0.15),
+            Colors.black.withValues(alpha: 0.15),
             BlendMode.dstATop,
           ),
         );
@@ -52,7 +52,7 @@ class ChatBackground extends StatelessWidget {
             image: FileImage(file),
             fit: BoxFit.cover,
             colorFilter: ColorFilter.mode(
-              Colors.black.withOpacity(0.15),
+              Colors.black.withValues(alpha: 0.15),
               BlendMode.dstATop,
             ),
           );

@@ -164,7 +164,7 @@ class _SplashScreenState extends State<SplashScreen> with TickerProviderStateMix
               height: 250,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: themeColor.withOpacity(isDark ? 0.08 : 0.15),
+                color: themeColor.withValues(alpha: isDark ? 0.08 : 0.15),
               ),
             ),
           ),
@@ -201,7 +201,7 @@ class _SplashScreenState extends State<SplashScreen> with TickerProviderStateMix
                                   height: 80,
                                   decoration: BoxDecoration(
                                     shape: BoxShape.circle,
-                                    color: themeColor.withOpacity(0.25),
+                                    color: themeColor.withValues(alpha: 0.25),
                                   ),
                                 ),
                               ),
@@ -221,7 +221,7 @@ class _SplashScreenState extends State<SplashScreen> with TickerProviderStateMix
                                   height: 80,
                                   decoration: BoxDecoration(
                                     shape: BoxShape.circle,
-                                    color: themeColor.withOpacity(0.4),
+                                    color: themeColor.withValues(alpha: 0.4),
                                   ),
                                 ),
                               ),
@@ -234,9 +234,9 @@ class _SplashScreenState extends State<SplashScreen> with TickerProviderStateMix
                           height: 120,
                           decoration: BoxDecoration(
                             shape: BoxShape.circle,
-                            color: Colors.white.withOpacity(0.04),
+                            color: Colors.white.withValues(alpha: 0.04),
                             border: Border.all(
-                              color: Colors.white.withOpacity(0.08),
+                              color: Colors.white.withValues(alpha: 0.08),
                               width: 1.5,
                             ),
                           ),
@@ -247,9 +247,9 @@ class _SplashScreenState extends State<SplashScreen> with TickerProviderStateMix
                           height: 100,
                           decoration: BoxDecoration(
                             shape: BoxShape.circle,
-                            color: Colors.white.withOpacity(0.08),
+                            color: Colors.white.withValues(alpha: 0.08),
                             border: Border.all(
-                              color: Colors.white.withOpacity(0.15),
+                              color: Colors.white.withValues(alpha: 0.15),
                               width: 1,
                             ),
                           ),
@@ -265,22 +265,22 @@ class _SplashScreenState extends State<SplashScreen> with TickerProviderStateMix
                               begin: Alignment.topLeft,
                               end: Alignment.bottomRight,
                               colors: [
-                                Colors.white.withOpacity(isDark ? 0.28 : 0.68),
-                                Colors.white.withOpacity(isDark ? 0.06 : 0.16),
+                                Colors.white.withValues(alpha: isDark ? 0.28 : 0.68),
+                                Colors.white.withValues(alpha: isDark ? 0.06 : 0.16),
                               ],
                             ),
                             border: Border.all(
-                              color: Colors.white.withOpacity(isDark ? 0.5 : 0.9),
+                              color: Colors.white.withValues(alpha: isDark ? 0.5 : 0.9),
                               width: 1.8,
                             ),
                             boxShadow: [
                               BoxShadow(
-                                color: Colors.black.withOpacity(isDark ? 0.45 : 0.14),
+                                color: Colors.black.withValues(alpha: isDark ? 0.45 : 0.14),
                                 blurRadius: 18,
                                 offset: const Offset(0, 9),
                               ),
                               BoxShadow(
-                                color: themeColor.withOpacity(isDark ? 0.3 : 0.2),
+                                color: themeColor.withValues(alpha: isDark ? 0.3 : 0.2),
                                 blurRadius: 22,
                                 spreadRadius: -2,
                               ),

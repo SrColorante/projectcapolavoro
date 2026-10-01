@@ -96,8 +96,8 @@ class _ContactPreviewBubbleState extends State<ContactPreviewBubble> {
         width: 220,
         decoration: BoxDecoration(
           color: widget.isSent 
-              ? Colors.white.withOpacity(0.1) 
-              : Colors.black.withOpacity(0.05),
+              ? Colors.white.withValues(alpha: 0.1) 
+              : Colors.black.withValues(alpha: 0.05),
           borderRadius: BorderRadius.circular(16),
         ),
         child: Row(
@@ -132,8 +132,8 @@ class _ContactPreviewBubbleState extends State<ContactPreviewBubble> {
     final avatarUrl = profile.profilePhotoUrl != null ? _resolveUrl(profile.profilePhotoUrl!) : null;
 
     final cardBgColor = widget.isSent
-        ? Colors.white.withOpacity(0.12)
-        : (isDark ? Colors.white.withOpacity(0.06) : Colors.black.withOpacity(0.04));
+        ? Colors.white.withValues(alpha: 0.12)
+        : (isDark ? Colors.white.withValues(alpha: 0.06) : Colors.black.withValues(alpha: 0.04));
 
     final textColor = widget.isSent 
         ? Colors.white 

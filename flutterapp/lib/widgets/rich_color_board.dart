@@ -77,7 +77,7 @@ class _RichColorBoardState extends State<RichColorBoard> with SingleTickerProvid
   @override
   void didUpdateWidget(covariant RichColorBoard oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.selectedColor.value != widget.selectedColor.value) {
+    if (oldWidget.selectedColor.toARGB32() != widget.selectedColor.toARGB32()) {
       _updateHSLValues(widget.selectedColor);
       _hexController.text = _colorToHex(widget.selectedColor);
     }
@@ -98,7 +98,7 @@ class _RichColorBoardState extends State<RichColorBoard> with SingleTickerProvid
   }
 
   String _colorToHex(Color color) {
-    return color.value.toRadixString(16).padLeft(8, '0').toUpperCase();
+    return color.toARGB32().toRadixString(16).padLeft(8, '0').toUpperCase();
   }
 
   void _onPresetSelected(Color color) {
@@ -138,10 +138,10 @@ class _RichColorBoardState extends State<RichColorBoard> with SingleTickerProvid
 
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(isDark ? 0.05 : 0.45),
+        color: Colors.white.withValues(alpha: isDark ? 0.05 : 0.45),
         borderRadius: BorderRadius.circular(24),
         border: Border.all(
-          color: Colors.white.withOpacity(isDark ? 0.12 : 0.4),
+          color: Colors.white.withValues(alpha: isDark ? 0.12 : 0.4),
           width: 1,
         ),
       ),
@@ -254,7 +254,7 @@ class _RichColorBoardState extends State<RichColorBoard> with SingleTickerProvid
                 spacing: 10,
                 runSpacing: 10,
                 children: list.map((color) {
-                  final isSelected = color.value == widget.selectedColor.value;
+                  final isSelected = color.toARGB32() == widget.selectedColor.toARGB32();
                   return InkWell(
                     onTap: () => _onPresetSelected(color),
                     borderRadius: BorderRadius.circular(16),
@@ -274,13 +274,13 @@ class _RichColorBoardState extends State<RichColorBoard> with SingleTickerProvid
                         boxShadow: [
                           if (isSelected)
                             BoxShadow(
-                              color: color.withOpacity(0.5),
+                              color: color.withValues(alpha: 0.5),
                               blurRadius: 8,
                               spreadRadius: 1,
                             )
                           else
                             BoxShadow(
-                              color: Colors.black.withOpacity(0.08),
+                              color: Colors.black.withValues(alpha: 0.08),
                               blurRadius: 3,
                               offset: const Offset(0, 1.5),
                             ),
@@ -343,11 +343,11 @@ class _RichColorBoardState extends State<RichColorBoard> with SingleTickerProvid
                         color: isDark ? Colors.white60 : Colors.black54,
                       ),
                       filled: true,
-                      fillColor: Colors.black.withOpacity(isDark ? 0.08 : 0.03),
+                      fillColor: Colors.black.withValues(alpha: isDark ? 0.08 : 0.03),
                       enabledBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
                         borderSide: BorderSide(
-                          color: Colors.white.withOpacity(isDark ? 0.08 : 0.2),
+                          color: Colors.white.withValues(alpha: isDark ? 0.08 : 0.2),
                         ),
                       ),
                       focusedBorder: OutlineInputBorder(
@@ -369,12 +369,12 @@ class _RichColorBoardState extends State<RichColorBoard> with SingleTickerProvid
                   color: activeColor,
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(
-                    color: Colors.white.withOpacity(isDark ? 0.2 : 0.6),
+                    color: Colors.white.withValues(alpha: isDark ? 0.2 : 0.6),
                     width: 1.5,
                   ),
                   boxShadow: [
                     BoxShadow(
-                      color: activeColor.withOpacity(0.35),
+                      color: activeColor.withValues(alpha: 0.35),
                       blurRadius: 10,
                       offset: const Offset(0, 4),
                     ),

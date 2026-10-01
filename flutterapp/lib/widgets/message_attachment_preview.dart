@@ -70,11 +70,15 @@ class MessageAttachmentPreview extends StatelessWidget {
       if (await canLaunchUrl(uri)) {
         await launchUrl(uri, mode: LaunchMode.externalApplication);
       } else {
+        // Il context e' stato passato come parametro: si controlla lui, non
+        // il `mounted` dello State che contiene il metodo.
+        if (!context.mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Impossibile scaricare o aprire il file esternamente.')),
         );
       }
     } catch (_) {
+      if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Errore durante l\'apertura del file.')),
       );
@@ -272,9 +276,9 @@ class MessageAttachmentPreview extends StatelessWidget {
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.06),
+        color: Colors.white.withValues(alpha: 0.06),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.white.withOpacity(0.12)),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -332,7 +336,7 @@ class MessageAttachmentPreview extends StatelessWidget {
                 const SizedBox(width: 8),
                 IconButton.filled(
                   style: IconButton.styleFrom(
-                    backgroundColor: Colors.white.withOpacity(0.08),
+                    backgroundColor: Colors.white.withValues(alpha: 0.08),
                   ),
                   icon: const Icon(Icons.download_rounded, color: Colors.white, size: 20),
                   onPressed: () => _openExternal(context, sourceUrl),
@@ -503,11 +507,11 @@ class _SpinningBorderWrapperState extends State<SpinningBorderWrapper> with Sing
                     center: Alignment.center,
                     transform: GradientRotation(angle),
                     colors: [
-                      widget.themeColor.withOpacity(0.0),
+                      widget.themeColor.withValues(alpha: 0.0),
                       widget.themeColor,
-                      widget.themeColor.withOpacity(0.0),
+                      widget.themeColor.withValues(alpha: 0.0),
                       widget.themeColor,
-                      widget.themeColor.withOpacity(0.0),
+                      widget.themeColor.withValues(alpha: 0.0),
                     ],
                     stops: const [0.0, 0.25, 0.5, 0.75, 1.0],
                   )
@@ -602,6 +606,9 @@ class _AudioMetadataCanvasPlayerState extends State<_AudioMetadataCanvasPlayer> 
         await _audioPlayer.play(UrlSource(widget.url));
       }
     } catch (_) {
+      // Senza questo controllo, chiudere il widget durante la riproduzione
+      // provoca l'uso di un context smontato.
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Impossibile riprodurre la traccia audio.')),
       );
@@ -652,8 +659,8 @@ class _AudioMetadataCanvasPlayerState extends State<_AudioMetadataCanvasPlayer> 
                       height: 58,
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
-                        color: Colors.white.withOpacity(0.18),
-                        border: Border.all(color: Colors.white.withOpacity(0.3), width: 1.5),
+                        color: Colors.white.withValues(alpha: 0.18),
+                        border: Border.all(color: Colors.white.withValues(alpha: 0.3), width: 1.5),
                       ),
                       child: IconButton(
                         icon: Icon(
@@ -678,8 +685,8 @@ class _AudioMetadataCanvasPlayerState extends State<_AudioMetadataCanvasPlayer> 
                     child: Container(
                       padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
                       decoration: BoxDecoration(
-                        color: Colors.black.withOpacity(0.45),
-                        border: Border(top: BorderSide(color: Colors.white.withOpacity(0.1), width: 1)),
+                        color: Colors.black.withValues(alpha: 0.45),
+                        border: Border(top: BorderSide(color: Colors.white.withValues(alpha: 0.1), width: 1)),
                       ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -701,7 +708,7 @@ class _AudioMetadataCanvasPlayerState extends State<_AudioMetadataCanvasPlayer> 
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(
-                              color: Colors.white.withOpacity(0.7),
+                              color: Colors.white.withValues(alpha: 0.7),
                               fontSize: 11,
                             ),
                           ),
@@ -762,7 +769,7 @@ class _AudioMetadataCanvasPlayerState extends State<_AudioMetadataCanvasPlayer> 
         gradient: LinearGradient(
           colors: [
             themeColor,
-            themeColor.withOpacity(0.4),
+            themeColor.withValues(alpha: 0.4),
             isDark ? const Color(0xFF101012) : const Color(0xFFF8F9FA),
           ],
           begin: Alignment.topLeft,
@@ -845,6 +852,7 @@ class _AudioAttachmentPlayerState extends State<_AudioAttachmentPlayer> {
         await _audioPlayer.play(UrlSource(widget.url));
       }
     } catch (_) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Impossibile riprodurre la descrizione audio.')),
       );
@@ -863,7 +871,7 @@ class _AudioAttachmentPlayerState extends State<_AudioAttachmentPlayer> {
     final themeColor = Color(AppPreferences.instance.themeColorValue);
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
-      color: isDark ? Colors.white.withOpacity(0.06) : Colors.white,
+      color: isDark ? Colors.white.withValues(alpha: 0.06) : Colors.white,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -1072,6 +1080,9 @@ class IdeCodeHighlightCanvas extends StatelessWidget {
       final file = File('${downloadsDir.path}/$fileName');
       await file.writeAsString(code);
 
+      // Il context arriva come parametro del metodo, non dallo State: e'
+      // lui va controllato.
+      if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('File salvato in: ${file.path}'),
@@ -1087,6 +1098,7 @@ class IdeCodeHighlightCanvas extends StatelessWidget {
         ),
       );
     } catch (e) {
+      if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Errore nel salvare il file: $e')),
       );
@@ -1102,10 +1114,10 @@ class IdeCodeHighlightCanvas extends StatelessWidget {
       decoration: BoxDecoration(
         color: const Color(0xFF1E1E1E),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.white.withOpacity(0.08), width: 1),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.08), width: 1),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.3),
+            color: Colors.black.withValues(alpha: 0.3),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),
@@ -1176,11 +1188,11 @@ class IdeCodeHighlightCanvas extends StatelessWidget {
                       padding: const EdgeInsets.all(4.0),
                       child: Row(
                         children: [
-                          Icon(Icons.copy_rounded, color: Colors.white.withOpacity(0.6), size: 12),
+                          Icon(Icons.copy_rounded, color: Colors.white.withValues(alpha: 0.6), size: 12),
                           const SizedBox(width: 4),
                           Text(
                             'Copy',
-                            style: TextStyle(color: Colors.white.withOpacity(0.6), fontSize: 10),
+                            style: TextStyle(color: Colors.white.withValues(alpha: 0.6), fontSize: 10),
                           ),
                         ],
                       ),
@@ -1197,11 +1209,11 @@ class IdeCodeHighlightCanvas extends StatelessWidget {
                       padding: const EdgeInsets.all(4.0),
                       child: Row(
                         children: [
-                          Icon(Icons.download_rounded, color: Colors.white.withOpacity(0.6), size: 12),
+                          Icon(Icons.download_rounded, color: Colors.white.withValues(alpha: 0.6), size: 12),
                           const SizedBox(width: 4),
                           Text(
                             'Salva',
-                            style: TextStyle(color: Colors.white.withOpacity(0.6), fontSize: 10),
+                            style: TextStyle(color: Colors.white.withValues(alpha: 0.6), fontSize: 10),
                           ),
                         ],
                       ),
@@ -1229,7 +1241,7 @@ class IdeCodeHighlightCanvas extends StatelessWidget {
                           return Text(
                             '${index + 1}',
                             style: TextStyle(
-                              color: Colors.white.withOpacity(0.25),
+                              color: Colors.white.withValues(alpha: 0.25),
                               fontFamily: 'monospace',
                               fontSize: 12,
                             ),
@@ -1240,7 +1252,7 @@ class IdeCodeHighlightCanvas extends StatelessWidget {
                     Container(
                       width: 1,
                       height: lines.length * 16.0,
-                      color: Colors.white.withOpacity(0.08),
+                      color: Colors.white.withValues(alpha: 0.08),
                     ),
                     const SizedBox(width: 10),
                     Padding(
