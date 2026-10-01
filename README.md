@@ -220,3 +220,103 @@ richiede `composer install`; senza, l'app funziona normalmente.
 `gemini.md` e `todo.md` sono piani di lavoro in italiano. Descrivono uno stato
 precedente del codice e non sono documentazione corrente. Sono conservati perché
 `todo.md` è l'unica enunciazione dei requisiti originali.
+
+---
+
+## Further reading
+
+External material covering the same ground. The cross-repo map, with the same
+links for all seven projects, is in `~/Progetti/RESOURCES.md`.
+
+### Build it from scratch
+
+- [Build your own VPN/Virtual Switch](https://github.com/peiyuanix/build-your-own-zerotier)
+  *(C/Python)* — the closest published analogue to the LAN-first premise: a
+  private network that works with no upstream infrastructure, reached by
+  discovery rather than by a directory server.
+- [Building a BitTorrent client from the ground up in Go](https://blog.jse.li/posts/torrent/)
+  — peer discovery and peer-to-peer delivery, the mechanics behind
+  `P2PSyncService` and the mDNS advertisement. Read together with the README's
+  "only with consent", which is a constraint the original does not have.
+- [Beej's Guide to Network Programming](http://beej.us/guide/bgnet/) — why the
+  HTTP polling path cannot be replaced by simply assuming message boundaries.
+- [Build Your Own Web Server From Scratch In JavaScript](https://build-your-own.org/webserver/)
+  — background for the procedural `index.php` router.
+
+### System design
+
+**Quice is the best fit in this collection for the System Design
+Primer** — it is the only project here with real shared state, a write path, a
+realtime delivery requirement and a documented consistency gap. The GDPR work
+maps onto the security sections; the architecture maps onto the rest:
+
+| Aspect | Primer section |
+|---|---|
+| Realtime is HTTP polling; the WebSocket server is optional | [Message queues](https://github.com/donnemartin/system-design-primer#message-queues), [Back pressure](https://github.com/donnemartin/system-design-primer#back-pressure) |
+| P2P and the server can disagree about message order | [Consistency patterns](https://github.com/donnemartin/system-design-primer#consistency-patterns), [Eventual consistency](https://github.com/donnemartin/system-design-primer#eventual-consistency) |
+| No end-to-end encryption; TLS protects the channel only | [Security](https://github.com/donnemartin/system-design-primer#security) |
+| Uploads live under the DocumentRoot unless `QUICE_UPLOADS_DIR` is set | [Cache](https://github.com/donnemartin/system-design-primer#cache), object-level section |
+| Retention windows and the automatic deletion job | [Database](https://github.com/donnemartin/system-design-primer#database) |
+| One server, LAN scope, no scale-out | [Load balancer](https://github.com/donnemartin/system-design-primer#load-balancer) |
+
+Interview drill: [design the Twitter timeline and
+search](https://github.com/donnemartin/system-design-primer#design-the-twitter-timeline-and-search-or-facebook-feed-and-search)
+— the same problem, a per-user feed assembled from writes spread across clients.
+
+### GDPR
+
+`docs/LEGAL/` is a substantial piece of work, and there is a curated list for
+it: [Awesome GDPR](https://github.com/bakke92/awesome-gdpr).
+
+### Books
+
+**PHP**
+
+- [PHP: The Right Way](https://www.phptherightway.com/)
+- [PHP Best Practices](https://phpbestpractices.org)
+- [PHP Documentor — Documentation](https://docs.phpdoc.org)
+
+**Dart and Flutter**
+
+- [Learning Dart](https://riptutorial.com/Dart/) — compiled from Stack Overflow, plus [the PDF](https://riptutorial.com/Download/dart.pdf)
+- [Flutter Cookbook](https://flutter.dev/docs/cookbook) — official
+
+**MySQL**
+
+- [MySQL 8.0 Tutorial Excerpt](https://dev.mysql.com/doc/mysql-tutorial-excerpt/8.0/en/tutorial.html) — official
+
+### API design
+
+The Bearer-token contract, the `resources/` router and the polling endpoint are
+the substance of an API surface:
+
+- [roadmap.sh/api-design](https://roadmap.sh/api-design)
+- [RESTful Web Services](http://restfulwebapis.org/RESTful_Web_Services.pdf) — Leonard Richardson & Samuel Ruby
+
+### Testing
+
+94 PHP + Dart checks is the unusual part of this project, and it is what makes
+the compliance claims checkable:
+
+- [Awesome Testing](https://github.com/TheJambo/awesome-testing) ·
+  [Awesome Code Review](https://github.com/joho/awesome-code-review)
+- [Project-based learning, PHP section](https://github.com/practical-tutorials/project-based-learning#php):
+  [Make Your Own Blog (in Pure PHP)](http://ilovephp.jondh.me.uk/en/tutorial/make-your-own-blog)
+  matches the "procedural PHP, no framework" constraint.
+
+### Reference
+
+- [roadmap.sh/flutter](https://roadmap.sh/flutter) · [php](https://roadmap.sh/php) · [sql](https://roadmap.sh/sql) · [full-stack](https://roadmap.sh/full-stack)
+- [Awesome Flutter](https://github.com/Solido/awesome-flutter) · [Awesome PHP](https://github.com/ziadoz/awesome-php) · [Awesome Dart](https://github.com/yissachar/awesome-dart) · [Awesome MySQL](https://github.com/shlomi-noach/awesome-mysql) · [Awesome Real-Time Communications](https://github.com/rtckit/awesome-rtc) · [Offline First](https://github.com/pazguille/offline-first)
+- [Project-based learning, Flutter section](https://github.com/practical-tutorials/project-based-learning#flutter):
+  [WhatsApp Clone](https://youtu.be/yqwfP2vXWJQ) is the closest published
+  analogue to this messenger.
+
+### Public APIs
+
+Quice is the **only** project in this collection with outbound network I/O *and*
+an explicit missing-features list — OTP emission for 2FA is the obvious one —
+which makes [public-apis](https://github.com/public-apis/public-apis) a cheap
+way to close a gap instead of writing a module. Categories worth reading first:
+`Authentication & Authorization`, `Translation` (the app already ships on-device
+ML Kit), and `Test Data`.

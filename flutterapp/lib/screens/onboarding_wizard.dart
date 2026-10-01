@@ -182,12 +182,14 @@ class _OnboardingWizardScreenState extends State<OnboardingWizardScreen> with Ti
   Future<void> _pickImage() async {
     try {
       final image = await _imagePicker.pickImage(source: ImageSource.gallery, imageQuality: 85);
+      if (!mounted) return;
       if (image != null) {
         setState(() {
           _localPhotoPath = image.path;
         });
       }
     } catch (_) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Impossibile selezionare la foto')),
       );
@@ -360,8 +362,8 @@ class _OnboardingWizardScreenState extends State<OnboardingWizardScreen> with Ti
     try {
       // Save localized configs
       await AppPreferences.instance.saveSettings(
-        themeColorValue: _themeColor.value,
-        backgroundColorValue: _isDarkMode ? const Color(0xFF050505).value : const Color(0xFFFFFFFF).value,
+        themeColorValue: _themeColor.toARGB32(),
+        backgroundColorValue: _isDarkMode ? const Color(0xFF050505).toARGB32() : const Color(0xFFFFFFFF).toARGB32(),
         preferredLanguageCode: _preferredLanguageCode,
       );
 
@@ -425,7 +427,7 @@ class _OnboardingWizardScreenState extends State<OnboardingWizardScreen> with Ti
               left: size.width * 0.1,
               child: _OnboardingFloatingCircle(
                 size: 200,
-                color: _themeColor.withOpacity(isDarkGlobal ? 0.05 : 0.15),
+                color: _themeColor.withValues(alpha: isDarkGlobal ? 0.05 : 0.15),
               ),
             ),
             Positioned(
@@ -433,7 +435,7 @@ class _OnboardingWizardScreenState extends State<OnboardingWizardScreen> with Ti
               right: size.width * 0.1,
               child: _OnboardingFloatingCircle(
                 size: 260,
-                color: _themeColor.withOpacity(isDarkGlobal ? 0.08 : 0.2),
+                color: _themeColor.withValues(alpha: isDarkGlobal ? 0.08 : 0.2),
               ),
             ),
 
@@ -512,7 +514,7 @@ class _OnboardingWizardScreenState extends State<OnboardingWizardScreen> with Ti
                     width: active ? 16 : 8,
                     height: 8,
                     decoration: BoxDecoration(
-                      color: active ? _themeColor : Colors.grey.withOpacity(0.5),
+                      color: active ? _themeColor : Colors.grey.withValues(alpha: 0.5),
                       borderRadius: BorderRadius.circular(4),
                     ),
                   );
@@ -568,7 +570,7 @@ class _OnboardingWizardScreenState extends State<OnboardingWizardScreen> with Ti
                       height: 50,
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
-                        color: _themeColor.withOpacity(_waveOpacity.value * 0.4),
+                        color: _themeColor.withValues(alpha: _waveOpacity.value * 0.4),
                       ),
                     ),
                   ),
@@ -580,7 +582,7 @@ class _OnboardingWizardScreenState extends State<OnboardingWizardScreen> with Ti
                       height: 50,
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
-                        color: _themeColor.withOpacity(_waveOpacity.value * 0.7),
+                        color: _themeColor.withValues(alpha: _waveOpacity.value * 0.7),
                       ),
                     ),
                   ),
@@ -596,22 +598,22 @@ class _OnboardingWizardScreenState extends State<OnboardingWizardScreen> with Ti
                           begin: Alignment.topLeft,
                           end: Alignment.bottomRight,
                           colors: [
-                            Colors.white.withOpacity(isDark ? 0.28 : 0.68),
-                            Colors.white.withOpacity(isDark ? 0.06 : 0.16),
+                            Colors.white.withValues(alpha: isDark ? 0.28 : 0.68),
+                            Colors.white.withValues(alpha: isDark ? 0.06 : 0.16),
                           ],
                         ),
                         border: Border.all(
-                          color: Colors.white.withOpacity(isDark ? 0.5 : 0.9),
+                          color: Colors.white.withValues(alpha: isDark ? 0.5 : 0.9),
                           width: 1.8,
                         ),
                         boxShadow: [
                           BoxShadow(
-                            color: Colors.black.withOpacity(isDark ? 0.45 : 0.14),
+                            color: Colors.black.withValues(alpha: isDark ? 0.45 : 0.14),
                             blurRadius: 18,
                             offset: const Offset(0, 9),
                           ),
                           BoxShadow(
-                            color: _themeColor.withOpacity(isDark ? 0.3 : 0.2),
+                            color: _themeColor.withValues(alpha: isDark ? 0.3 : 0.2),
                             blurRadius: 22,
                             spreadRadius: -2,
                           ),
@@ -657,9 +659,9 @@ class _OnboardingWizardScreenState extends State<OnboardingWizardScreen> with Ti
             children: [
               _AnimatedBubbleNode(delay: 0, color: _themeColor),
               const SizedBox(width: 12),
-              _AnimatedBubbleNode(delay: 200, color: _themeColor.withOpacity(0.7)),
+              _AnimatedBubbleNode(delay: 200, color: _themeColor.withValues(alpha: 0.7)),
               const SizedBox(width: 12),
-              _AnimatedBubbleNode(delay: 400, color: _themeColor.withOpacity(0.5)),
+              _AnimatedBubbleNode(delay: 400, color: _themeColor.withValues(alpha: 0.5)),
             ],
           ),
         ),
@@ -891,10 +893,10 @@ class _OnboardingWizardScreenState extends State<OnboardingWizardScreen> with Ti
         labelStyle: TextStyle(color: isDark ? Colors.white70 : Colors.black54),
         prefixIcon: Icon(Icons.language_rounded, color: isDark ? Colors.white70 : Colors.black54),
         filled: true,
-        fillColor: Colors.black.withOpacity(0.12),
+        fillColor: Colors.black.withValues(alpha: 0.12),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(16),
-          borderSide: BorderSide(color: Colors.white.withOpacity(0.15)),
+          borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.15)),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(16),
@@ -934,13 +936,13 @@ class _OnboardingWizardScreenState extends State<OnboardingWizardScreen> with Ti
       cursorColor: Colors.white,
       decoration: InputDecoration(
         labelText: label,
-        labelStyle: TextStyle(color: Colors.white.withOpacity(0.7)),
-        prefixIcon: Icon(icon, color: Colors.white.withOpacity(0.7)),
+        labelStyle: TextStyle(color: Colors.white.withValues(alpha: 0.7)),
+        prefixIcon: Icon(icon, color: Colors.white.withValues(alpha: 0.7)),
         filled: true,
-        fillColor: Colors.black.withOpacity(0.12),
+        fillColor: Colors.black.withValues(alpha: 0.12),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(16),
-          borderSide: BorderSide(color: Colors.white.withOpacity(0.15)),
+          borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.15)),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(16),
@@ -995,7 +997,7 @@ class _OnboardingWizardScreenState extends State<OnboardingWizardScreen> with Ti
                   },
                   child: CircleAvatar(
                     radius: 56,
-                    backgroundColor: Colors.white.withOpacity(0.1),
+                    backgroundColor: Colors.white.withValues(alpha: 0.1),
                     backgroundImage: avatarImage,
                     child: avatarImage == null
                         ? const Icon(Icons.person, size: 55, color: Colors.white)
@@ -1029,10 +1031,10 @@ class _OnboardingWizardScreenState extends State<OnboardingWizardScreen> with Ti
               labelText: 'Nickname',
               prefixIcon: const Icon(Icons.badge, color: Colors.white70),
               filled: true,
-              fillColor: Colors.black.withOpacity(0.12),
+              fillColor: Colors.black.withValues(alpha: 0.12),
               enabledBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(16),
-                borderSide: BorderSide(color: Colors.white.withOpacity(0.15)),
+                borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.15)),
               ),
               focusedBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(16),
@@ -1053,10 +1055,10 @@ class _OnboardingWizardScreenState extends State<OnboardingWizardScreen> with Ti
               labelText: 'Stato personale / Bio',
               prefixIcon: const Icon(Icons.article_rounded, color: Colors.white70),
               filled: true,
-              fillColor: Colors.black.withOpacity(0.12),
+              fillColor: Colors.black.withValues(alpha: 0.12),
               enabledBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(16),
-                borderSide: BorderSide(color: Colors.white.withOpacity(0.15)),
+                borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.15)),
               ),
               focusedBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(16),
@@ -1112,7 +1114,7 @@ class _OnboardingWizardScreenState extends State<OnboardingWizardScreen> with Ti
         Card(
           elevation: 4,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          color: isDark ? Colors.black.withOpacity(0.3) : Colors.white.withOpacity(0.5),
+          color: isDark ? Colors.black.withValues(alpha: 0.3) : Colors.white.withValues(alpha: 0.5),
           child: Padding(
             padding: const EdgeInsets.all(16),
             child: Column(
@@ -1297,7 +1299,7 @@ class _OnboardingWizardScreenState extends State<OnboardingWizardScreen> with Ti
               height: 8,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: active ? _themeColor : Colors.grey.withOpacity(0.5),
+                color: active ? _themeColor : Colors.grey.withValues(alpha: 0.5),
               ),
             );
           }),
@@ -1347,22 +1349,22 @@ class _OnboardingWizardScreenState extends State<OnboardingWizardScreen> with Ti
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
           colors: [
-            Colors.white.withOpacity(isDark ? 0.28 : 0.68),
-            Colors.white.withOpacity(isDark ? 0.06 : 0.16),
+            Colors.white.withValues(alpha: isDark ? 0.28 : 0.68),
+            Colors.white.withValues(alpha: isDark ? 0.06 : 0.16),
           ],
         ),
         border: Border.all(
-          color: Colors.white.withOpacity(isDark ? 0.5 : 0.9),
+          color: Colors.white.withValues(alpha: isDark ? 0.5 : 0.9),
           width: 1.8,
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(isDark ? 0.45 : 0.14),
+            color: Colors.black.withValues(alpha: isDark ? 0.45 : 0.14),
             blurRadius: 18,
             offset: const Offset(0, 9),
           ),
           BoxShadow(
-            color: accentColor.withOpacity(isDark ? 0.3 : 0.2),
+            color: accentColor.withValues(alpha: isDark ? 0.3 : 0.2),
             blurRadius: 22,
             spreadRadius: -2,
           ),
@@ -1485,7 +1487,7 @@ class _AnimatedBubbleNodeState extends State<_AnimatedBubbleNode> with SingleTic
           color: widget.color,
           boxShadow: [
             BoxShadow(
-              color: widget.color.withOpacity(0.2),
+              color: widget.color.withValues(alpha: 0.2),
               blurRadius: 6,
               offset: const Offset(0, 3),
             ),
@@ -1546,7 +1548,7 @@ class _PulsingDoLaterButtonState extends State<_PulsingDoLaterButton> with Singl
       child: OutlinedButton(
         onPressed: widget.onPressed,
         style: OutlinedButton.styleFrom(
-          side: BorderSide(color: Colors.white.withOpacity(0.4)),
+          side: BorderSide(color: Colors.white.withValues(alpha: 0.4)),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         ),
@@ -1580,7 +1582,7 @@ class _PresetColorNode extends StatelessWidget {
           ),
           boxShadow: [
             BoxShadow(
-              color: (color.computeLuminance() > 0.5 ? Colors.black : Colors.white).withOpacity(isSelected ? 0.35 : 0.12),
+              color: (color.computeLuminance() > 0.5 ? Colors.black : Colors.white).withValues(alpha: isSelected ? 0.35 : 0.12),
               blurRadius: isSelected ? 8 : 4,
               spreadRadius: isSelected ? 1 : 0,
             ),
@@ -1607,27 +1609,27 @@ class _GlassCard extends StatelessWidget {
           end: Alignment.bottomRight,
           colors: isDark
               ? [
-                  Colors.white.withOpacity(0.18),
-                  Colors.white.withOpacity(0.06),
-                  Colors.black.withOpacity(0.1),
-                  Colors.black.withOpacity(0.24),
+                  Colors.white.withValues(alpha: 0.18),
+                  Colors.white.withValues(alpha: 0.06),
+                  Colors.black.withValues(alpha: 0.1),
+                  Colors.black.withValues(alpha: 0.24),
                 ]
               : [
-                  Colors.white.withOpacity(0.76),
-                  Colors.white.withOpacity(0.34),
-                  Colors.black.withOpacity(0.05),
-                  Colors.black.withOpacity(0.12),
+                  Colors.white.withValues(alpha: 0.76),
+                  Colors.white.withValues(alpha: 0.34),
+                  Colors.black.withValues(alpha: 0.05),
+                  Colors.black.withValues(alpha: 0.12),
                 ],
           stops: const [0.0, 0.4, 0.78, 1.0],
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(isDark ? 0.22 : 0.1),
+            color: Colors.black.withValues(alpha: isDark ? 0.22 : 0.1),
             blurRadius: 30,
             offset: const Offset(0, 15),
           ),
           BoxShadow(
-            color: Colors.white.withOpacity(isDark ? 0.03 : 0.22),
+            color: Colors.white.withValues(alpha: isDark ? 0.03 : 0.22),
             blurRadius: 14,
             offset: const Offset(-1, -1),
           ),
@@ -1640,7 +1642,7 @@ class _GlassCard extends StatelessWidget {
           child: BackdropFilter(
             filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
             child: Container(
-              color: Colors.white.withOpacity(isDark ? 0.08 : 0.18),
+              color: Colors.white.withValues(alpha: isDark ? 0.08 : 0.18),
               child: Padding(
                 padding: const EdgeInsets.all(28),
                 child: child,

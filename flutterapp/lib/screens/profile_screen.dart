@@ -78,12 +78,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Future<void> _pickImage() async {
     try {
       final image = await _imagePicker.pickImage(source: ImageSource.gallery, imageQuality: 85);
+      // Senza questo controllo, uscire dalla schermata mentre il selettore e'
+      // aperto provoca un setState su uno State gia' smontato.
+      if (!mounted) return;
       if (image != null) {
         setState(() {
           _localPhotoPath = image.path;
         });
       }
     } catch (_) {
+      if (!mounted) return;
       ApiExceptionHandler.showSnackBarError(context, 'Impossibile selezionare la foto.');
     }
   }
@@ -91,9 +95,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Future<void> _startRecording() async {
     try {
       if (await _audioRecorder.hasPermission()) {
+        if (!mounted) return;
         final tempDir = await getTemporaryDirectory();
         final path = '${tempDir.path}/bio_voice_${DateTime.now().millisecondsSinceEpoch}.m4a';
 
+        if (!mounted) return;
         setState(() {
           _isRecording = true;
           _recordingSeconds = 0;
@@ -111,11 +117,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
           if (timer.tick >= 50) {
             timer.cancel();
             await _stopRecording();
-            ApiExceptionHandler.showSnackBarError(context, 'Registrazione interrotta: limite massimo di 5 secondi raggiunto.');
+            if (!mounted) return;
+            ApiExceptionHandler.showSnackBarError(
+              context,
+              'Registrazione interrotta: limite massimo di 5 secondi raggiunto.',
+            );
           }
         });
       }
     } catch (e) {
+      if (!mounted) return;
       setState(() => _isRecording = false);
       ApiExceptionHandler.showSnackBarError(context, 'Errore durante l\'avvio della registrazione.');
     }
@@ -125,6 +136,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     _recordingTimer?.cancel();
     try {
       final path = await _audioRecorder.stop();
+      if (!mounted) return;
       if (path != null) {
         setState(() {
           _localAudioPath = path;
@@ -133,6 +145,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         });
       }
     } catch (_) {
+      if (!mounted) return;
       setState(() => _isRecording = false);
       ApiExceptionHandler.showSnackBarError(context, 'Errore durante l\'interruzione della registrazione.');
     }

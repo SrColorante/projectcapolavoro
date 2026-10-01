@@ -588,8 +588,10 @@ class _HomeScreenState extends State<HomeScreen> {
                 },
                 onCreatePressed: () async {
                   await _createChat();
-                  if (mounted) {
-                    Navigator.of(context).pop(); // Close sheet
+                  // `context` qui e' quello del bottom sheet, non dello State:
+                  // va controllato lui, non il `mounted` esterno.
+                  if (context.mounted) {
+                    Navigator.of(context).pop();
                   }
                 },
               ),
@@ -842,6 +844,10 @@ class _HomeScreenState extends State<HomeScreen> {
     });
     await _loadChatCustomSettings(chat.id);
 
+    // La navigazione avviene dopo un await: senza questo controllo si puo'
+    // spingere una route su uno State gia' smontato.
+    if (!mounted) return;
+
     final isMobile = Platform.isAndroid || Platform.isIOS;
     if (isMobile) {
       Navigator.of(context).push(
@@ -945,8 +951,8 @@ class _HomeScreenState extends State<HomeScreen> {
   }) async {
     final prefs = await SharedPreferences.getInstance();
     final Map<String, dynamic> data = {
-      'backgroundColor': bgColor.value,
-      'bubbleColor': bubbleColor.value,
+      'backgroundColor': bgColor.toARGB32(),
+      'bubbleColor': bubbleColor.toARGB32(),
       'backgroundImagePath': bgImagePath,
       'useDefaultTheme': useDefault,
     };
@@ -1000,8 +1006,8 @@ class _HomeScreenState extends State<HomeScreen> {
         id: chatId,
         title: name,
         participantId: participantId,
-        backgroundColorValue: _newChatBackgroundColor.value,
-        bubbleColorValue: _newChatBubbleColor.value,
+        backgroundColorValue: _newChatBackgroundColor.toARGB32(),
+        bubbleColorValue: _newChatBubbleColor.toARGB32(),
         messages: <ChatMessage>[],
       );
 
@@ -1119,8 +1125,8 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() => _isSavingSettings = true);
     try {
       await AppPreferences.instance.saveSettings(
-        themeColorValue: _appThemeColor.value,
-        backgroundColorValue: _appBackgroundColor.value,
+        themeColorValue: _appThemeColor.toARGB32(),
+        backgroundColorValue: _appBackgroundColor.toARGB32(),
         backgroundImagePath: _appBackgroundImagePath,
         preferredLanguageCode: _preferredLanguageCode,
       );
@@ -1319,95 +1325,6 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  Future<bool?> _showFilePreviewDialog({
-    required String fileName,
-    required int fileSize,
-    required String filePath,
-    required bool isImage,
-  }) async {
-    String sizeLabel;
-    if (fileSize < 1024) {
-      sizeLabel = '$fileSize B';
-    } else if (fileSize < 1024 * 1024) {
-      sizeLabel = '${(fileSize / 1024).toStringAsFixed(1)} KB';
-    } else {
-      sizeLabel = '${(fileSize / (1024 * 1024)).toStringAsFixed(1)} MB';
-    }
-
-    return showDialog<bool>(
-      context: context,
-      barrierDismissible: true,
-      builder: (context) => AlertDialog(
-        title: const Text('Anteprima File'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              if (isImage)
-                Container(
-                  height: 200,
-                  margin: const EdgeInsets.only(bottom: 16),
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.black12),
-                  ),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(12),
-                    child: Image.file(
-                      File(filePath),
-                      fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) => const Center(
-                        child: Icon(Icons.broken_image, size: 48, color: Colors.grey),
-                      ),
-                    ),
-                  ),
-                ),
-              if (!isImage)
-                Container(
-                  height: 100,
-                  margin: const EdgeInsets.only(bottom: 16),
-                  decoration: BoxDecoration(
-                    color: Colors.grey[100],
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.black12),
-                  ),
-                  child: Center(
-                    child: Icon(
-                      _getFileIcon(fileName),
-                      size: 48,
-                      color: Colors.blueGrey,
-                    ),
-                  ),
-                ),
-              Text(
-                fileName,
-                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-              ),
-              const SizedBox(height: 4),
-              Text(
-                'Dimensione: $sizeLabel',
-                style: const TextStyle(color: Colors.grey, fontSize: 13),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('ANNULLA'),
-          ),
-          ElevatedButton.icon(
-            onPressed: () => Navigator.of(context).pop(true),
-            icon: const Icon(Icons.send),
-            label: const Text('INVIA'),
-          ),
-        ],
-      ),
-    );
-  }
 
   IconData _getFileIcon(String fileName) {
     final ext = fileName.split('.').last.toLowerCase();
@@ -1552,7 +1469,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   bgImagePath: tempBgImagePath,
                   useDefault: tempUseDefault,
                 );
-                if (mounted) {
+                if (context.mounted) {
                   Navigator.of(context).pop();
                 }
               },
@@ -1664,10 +1581,10 @@ class _HomeScreenState extends State<HomeScreen> {
           flex: 3,
           child: Container(
             decoration: BoxDecoration(
-              color: Colors.white.withOpacity(isDark ? 0.015 : 0.2),
+              color: Colors.white.withValues(alpha: isDark ? 0.015 : 0.2),
               border: Border(
                 right: BorderSide(
-                  color: Colors.white.withOpacity(isDark ? 0.08 : 0.25),
+                  color: Colors.white.withValues(alpha: isDark ? 0.08 : 0.25),
                   width: 1.2,
                 ),
               ),
@@ -1719,7 +1636,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         ],
                       ),
                     ),
-                    Divider(height: 1, color: Colors.white.withOpacity(isDark ? 0.1 : 0.3)),
+                    Divider(height: 1, color: Colors.white.withValues(alpha: isDark ? 0.1 : 0.3)),
                     Expanded(
                       child: _isLoadingChats
                           ? const Center(child: CircularProgressIndicator())
@@ -1742,9 +1659,9 @@ class _HomeScreenState extends State<HomeScreen> {
                                         shape: RoundedRectangleBorder(
                                           borderRadius: BorderRadius.circular(16),
                                         ),
-                                        tileColor: Colors.white.withOpacity(isDark ? 0.03 : 0.12),
+                                        tileColor: Colors.white.withValues(alpha: isDark ? 0.03 : 0.12),
                                         leading: CircleAvatar(
-                                          backgroundColor: _appThemeColor.withOpacity(0.2),
+                                          backgroundColor: _appThemeColor.withValues(alpha: 0.2),
                                           child: Icon(Icons.archive, color: _appThemeColor),
                                         ),
                                         title: const Text(
@@ -1779,7 +1696,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                         key: Key('chat_dismiss_${chat.id}'),
                                         direction: DismissDirection.endToStart,
                                         background: Container(
-                                          color: _appThemeColor.withOpacity(0.8),
+                                          color: _appThemeColor.withValues(alpha: 0.8),
                                           alignment: Alignment.centerRight,
                                           padding: const EdgeInsets.only(right: 24),
                                           child: Icon(
@@ -1797,14 +1714,14 @@ class _HomeScreenState extends State<HomeScreen> {
                                               : 'Chat ${chat.title}',
                                           child: ListTile(
                                             selected: isSelected,
-                                            selectedTileColor: Colors.white.withOpacity(isDark ? 0.12 : 0.45),
-                                            tileColor: isSelected ? null : Colors.white.withOpacity(isDark ? 0.025 : 0.12),
+                                            selectedTileColor: Colors.white.withValues(alpha: isDark ? 0.12 : 0.45),
+                                            tileColor: isSelected ? null : Colors.white.withValues(alpha: isDark ? 0.025 : 0.12),
                                             shape: RoundedRectangleBorder(
                                               borderRadius: BorderRadius.circular(16),
                                               side: BorderSide(
                                                 color: isSelected
-                                                    ? _appThemeColor.withOpacity(0.4)
-                                                    : Colors.white.withOpacity(isDark ? 0.04 : 0.18),
+                                                    ? _appThemeColor.withValues(alpha: 0.4)
+                                                    : Colors.white.withValues(alpha: isDark ? 0.04 : 0.18),
                                                 width: 1,
                                               ),
                                             ),
@@ -1861,12 +1778,12 @@ class _HomeScreenState extends State<HomeScreen> {
         : BoxDecoration(
             borderRadius: BorderRadius.circular(28),
             border: Border.all(
-              color: Colors.white.withOpacity(isDark ? 0.08 : 0.35),
+              color: Colors.white.withValues(alpha: isDark ? 0.08 : 0.35),
               width: 1.5,
             ),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(isDark ? 0.35 : 0.08),
+                color: Colors.black.withValues(alpha: isDark ? 0.35 : 0.08),
                 blurRadius: 30,
                 spreadRadius: 2,
                 offset: const Offset(0, 12),
@@ -2084,10 +2001,10 @@ class _ChatPanelState extends State<ChatPanel> {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             decoration: BoxDecoration(
-              color: Colors.white.withOpacity(isDark ? 0.025 : 0.25),
+              color: Colors.white.withValues(alpha: isDark ? 0.025 : 0.25),
               border: Border(
                 bottom: BorderSide(
-                  color: Colors.white.withOpacity(isDark ? 0.08 : 0.28),
+                  color: Colors.white.withValues(alpha: isDark ? 0.08 : 0.28),
                   width: 1.2,
                 ),
               ),
@@ -2245,7 +2162,7 @@ class _ChatPanelState extends State<ChatPanel> {
                               ? BoxDecoration(
                                   gradient: LinearGradient(
                                     colors: [
-                                      resolvedBubbleColor.withOpacity(0.85),
+                                      resolvedBubbleColor.withValues(alpha: 0.85),
                                       resolvedBubbleColor,
                                     ],
                                     begin: Alignment.topLeft,
@@ -2258,19 +2175,19 @@ class _ChatPanelState extends State<ChatPanel> {
                                     bottomRight: Radius.zero,
                                   ),
                                   border: Border.all(
-                                    color: Colors.white.withOpacity(0.18),
+                                    color: Colors.white.withValues(alpha: 0.18),
                                     width: 1,
                                   ),
                                   boxShadow: [
                                     BoxShadow(
-                                      color: resolvedBubbleColor.withOpacity(0.25),
+                                      color: resolvedBubbleColor.withValues(alpha: 0.25),
                                       blurRadius: 8,
                                       offset: const Offset(0, 4),
                                     ),
                                   ],
                                 )
                               : BoxDecoration(
-                                  color: Colors.white.withOpacity(isDark ? 0.08 : 0.65),
+                                  color: Colors.white.withValues(alpha: isDark ? 0.08 : 0.65),
                                   borderRadius: const BorderRadius.only(
                                     topLeft: Radius.circular(16),
                                     topRight: Radius.circular(16),
@@ -2278,7 +2195,7 @@ class _ChatPanelState extends State<ChatPanel> {
                                     bottomRight: Radius.circular(16),
                                   ),
                                   border: Border.all(
-                                    color: Colors.white.withOpacity(isDark ? 0.12 : 0.35),
+                                    color: Colors.white.withValues(alpha: isDark ? 0.12 : 0.35),
                                     width: 1,
                                   ),
                                 ),
@@ -2390,10 +2307,10 @@ class _ChatPanelState extends State<ChatPanel> {
                   Expanded(
                     child: Container(
                       decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(isDark ? 0.06 : 0.55),
+                        color: Colors.white.withValues(alpha: isDark ? 0.06 : 0.55),
                         borderRadius: BorderRadius.circular(24),
                         border: Border.all(
-                          color: Colors.white.withOpacity(isDark ? 0.1 : 0.35),
+                          color: Colors.white.withValues(alpha: isDark ? 0.1 : 0.35),
                           width: 1,
                         ),
                       ),
@@ -2695,7 +2612,7 @@ class SettingsPanel extends StatelessWidget {
                     Expanded(
                       child: ChoiceChip(
                         label: const Text('Bianco Classico'),
-                        selected: selectedBackgroundColor.value == 0xFFFFFFFF,
+                        selected: selectedBackgroundColor.toARGB32() == 0xFFFFFFFF,
                         onSelected: (_) => onBackgroundColorChanged(const Color(0xFFFFFFFF)),
                       ),
                     ),
@@ -2703,7 +2620,7 @@ class SettingsPanel extends StatelessWidget {
                     Expanded(
                       child: ChoiceChip(
                         label: const Text('Nero Assoluto'),
-                        selected: selectedBackgroundColor.value == 0xFF050505,
+                        selected: selectedBackgroundColor.toARGB32() == 0xFF050505,
                         onSelected: (_) => onBackgroundColorChanged(const Color(0xFF050505)),
                       ),
                     ),
@@ -2776,10 +2693,10 @@ class SettingsPanel extends StatelessWidget {
                     labelStyle: TextStyle(color: isDark ? Colors.white70 : Colors.black54),
                     prefixIcon: Icon(Icons.language, color: isDark ? Colors.white70 : Colors.black54),
                     filled: true,
-                    fillColor: Colors.white.withOpacity(isDark ? 0.03 : 0.45),
+                    fillColor: Colors.white.withValues(alpha: isDark ? 0.03 : 0.45),
                     enabledBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(16),
-                      borderSide: BorderSide(color: Colors.white.withOpacity(isDark ? 0.08 : 0.3)),
+                      borderSide: BorderSide(color: Colors.white.withValues(alpha: isDark ? 0.08 : 0.3)),
                     ),
                     focusedBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(16),
@@ -3004,7 +2921,7 @@ class NewChatPanel extends StatelessWidget {
           decoration: BoxDecoration(
             border: Border(
               top: BorderSide(
-                color: Colors.white.withOpacity(isDark ? 0.10 : 0.22),
+                color: Colors.white.withValues(alpha: isDark ? 0.10 : 0.22),
               ),
             ),
           ),
@@ -3055,48 +2972,6 @@ class _PreviewMessageBubble extends StatelessWidget {
   }
 }
 
-class _ColorPalette extends StatelessWidget {
-  const _ColorPalette({
-    required this.colors,
-    required this.selectedColor,
-    required this.onColorSelected,
-  });
-
-  final List<Color> colors;
-  final Color selectedColor;
-  final ValueChanged<Color> onColorSelected;
-
-  @override
-  Widget build(BuildContext context) {
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
-      children: colors.map((color) {
-        final isSelected = color.value == selectedColor.value;
-        return InkWell(
-          borderRadius: BorderRadius.circular(14),
-          onTap: () => onColorSelected(color),
-          child: Container(
-            width: 28,
-            height: 28,
-            decoration: BoxDecoration(
-              color: color,
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(
-                color: isSelected ? Colors.black : Colors.black26,
-                width: isSelected ? 2 : 1,
-              ),
-            ),
-            child: isSelected
-                ? const Icon(Icons.check, size: 16, color: Colors.white)
-                : null,
-          ),
-        );
-      }).toList(growable: false),
-    );
-  }
-}
-
 class _GlassCard extends StatelessWidget {
   const _GlassCard({required this.child, this.padding});
   final Widget child;
@@ -3115,27 +2990,27 @@ class _GlassCard extends StatelessWidget {
           end: Alignment.bottomRight,
           colors: isDark
               ? [
-                  Colors.white.withOpacity(0.16),
-                  Colors.white.withOpacity(0.05),
-                  Colors.black.withOpacity(0.12),
-                  Colors.black.withOpacity(0.22),
+                  Colors.white.withValues(alpha: 0.16),
+                  Colors.white.withValues(alpha: 0.05),
+                  Colors.black.withValues(alpha: 0.12),
+                  Colors.black.withValues(alpha: 0.22),
                 ]
               : [
-                  Colors.white.withOpacity(0.72),
-                  Colors.white.withOpacity(0.32),
-                  Colors.black.withOpacity(0.06),
-                  Colors.black.withOpacity(0.12),
+                  Colors.white.withValues(alpha: 0.72),
+                  Colors.white.withValues(alpha: 0.32),
+                  Colors.black.withValues(alpha: 0.06),
+                  Colors.black.withValues(alpha: 0.12),
                 ],
           stops: const [0.0, 0.38, 0.78, 1.0],
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(isDark ? 0.18 : 0.08),
+            color: Colors.black.withValues(alpha: isDark ? 0.18 : 0.08),
             blurRadius: 28,
             offset: const Offset(0, 14),
           ),
           BoxShadow(
-            color: Colors.white.withOpacity(isDark ? 0.03 : 0.18),
+            color: Colors.white.withValues(alpha: isDark ? 0.03 : 0.18),
             blurRadius: 14,
             offset: const Offset(-1, -1),
           ),
@@ -3148,7 +3023,7 @@ class _GlassCard extends StatelessWidget {
           child: BackdropFilter(
             filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
             child: ColoredBox(
-              color: Colors.white.withOpacity(isDark ? 0.06 : 0.16),
+              color: Colors.white.withValues(alpha: isDark ? 0.06 : 0.16),
               // Vedi `_ListSurface` nella parte sinistra: il `Material`
               // trasparente serve a dare ai `ListTile` una superficie su cui
               // dipingere l'effetto di pressione. Il gradiente qui sopra coprirebbe

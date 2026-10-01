@@ -15,7 +15,7 @@ DecorationImage? _buildAppBackgroundImage(String? backgroundImagePath) {
     return DecorationImage(
       image: NetworkImage(path),
       fit: BoxFit.cover,
-      colorFilter: ColorFilter.mode(Colors.white.withOpacity(0.16), BlendMode.dstATop),
+      colorFilter: ColorFilter.mode(Colors.white.withValues(alpha: 0.16), BlendMode.dstATop),
     );
   }
 
@@ -23,7 +23,7 @@ DecorationImage? _buildAppBackgroundImage(String? backgroundImagePath) {
     return DecorationImage(
       image: AssetImage(path),
       fit: BoxFit.cover,
-      colorFilter: ColorFilter.mode(Colors.white.withOpacity(0.16), BlendMode.dstATop),
+      colorFilter: ColorFilter.mode(Colors.white.withValues(alpha: 0.16), BlendMode.dstATop),
     );
   }
 
@@ -32,7 +32,7 @@ DecorationImage? _buildAppBackgroundImage(String? backgroundImagePath) {
     return DecorationImage(
       image: FileImage(file),
       fit: BoxFit.cover,
-      colorFilter: ColorFilter.mode(Colors.white.withOpacity(0.16), BlendMode.dstATop),
+      colorFilter: ColorFilter.mode(Colors.white.withValues(alpha: 0.16), BlendMode.dstATop),
     );
   }
 
@@ -41,7 +41,7 @@ DecorationImage? _buildAppBackgroundImage(String? backgroundImagePath) {
 
 ThemeData _buildGlassTheme({required bool isDarkBase, required Color accentColor}) {
   final scaffoldColor = Colors.transparent;
-  final surfaceColor = isDarkBase ? const Color(0xFF101010).withOpacity(0.42) : Colors.white.withOpacity(0.34);
+  final surfaceColor = isDarkBase ? const Color(0xFF101010).withValues(alpha: 0.42) : Colors.white.withValues(alpha: 0.34);
   final textOnBase = isDarkBase ? Colors.white : Colors.black87;
 
   return ThemeData(
@@ -87,13 +87,13 @@ class CrimsonChatApp extends StatelessWidget {
           theme: lightTheme.copyWith(
             scaffoldBackgroundColor: Colors.transparent,
             colorScheme: lightTheme.colorScheme.copyWith(
-              surface: Colors.white.withOpacity(0.34),
+              surface: Colors.white.withValues(alpha: 0.34),
             ),
           ),
           darkTheme: darkTheme.copyWith(
             scaffoldBackgroundColor: Colors.transparent,
             colorScheme: darkTheme.colorScheme.copyWith(
-              surface: Colors.black.withOpacity(0.42),
+              surface: Colors.black.withValues(alpha: 0.42),
             ),
           ),
           themeMode: isDarkBase ? ThemeMode.dark : ThemeMode.light,

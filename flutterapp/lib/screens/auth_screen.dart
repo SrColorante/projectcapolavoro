@@ -123,10 +123,10 @@ class _AuthScreenState extends State<AuthScreen> with SingleTickerProviderStateM
                   filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
                   child: Container(
                     decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.08),
+                      color: Colors.white.withValues(alpha: 0.08),
                       borderRadius: BorderRadius.circular(16),
                       border: Border.all(
-                        color: Colors.white.withOpacity(0.2),
+                        color: Colors.white.withValues(alpha: 0.2),
                         width: 1.5,
                       ),
                     ),
@@ -145,7 +145,7 @@ class _AuthScreenState extends State<AuthScreen> with SingleTickerProviderStateM
             left: size.width * 0.15,
             child: _FloatingCircle(
               size: 150,
-              color: Color(AppPreferences.instance.themeColorValue).withOpacity(0.25),
+              color: Color(AppPreferences.instance.themeColorValue).withValues(alpha: 0.25),
             ),
           ),
           Positioned(
@@ -153,7 +153,7 @@ class _AuthScreenState extends State<AuthScreen> with SingleTickerProviderStateM
             right: size.width * 0.15,
             child: _FloatingCircle(
               size: 220,
-              color: Color(AppPreferences.instance.themeColorValue).withOpacity(0.18),
+              color: Color(AppPreferences.instance.themeColorValue).withValues(alpha: 0.18),
             ),
           ),
 
@@ -171,15 +171,15 @@ class _AuthScreenState extends State<AuthScreen> with SingleTickerProviderStateM
                       filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
                       child: Container(
                         decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(isDark ? 0.08 : 0.15),
+                          color: Colors.white.withValues(alpha: isDark ? 0.08 : 0.15),
                           borderRadius: BorderRadius.circular(24),
                           border: Border.all(
-                            color: Colors.white.withOpacity(isDark ? 0.15 : 0.35),
+                            color: Colors.white.withValues(alpha: isDark ? 0.15 : 0.35),
                             width: 1.5,
                           ),
                           boxShadow: [
                             BoxShadow(
-                              color: Colors.black.withOpacity(0.1),
+                              color: Colors.black.withValues(alpha: 0.1),
                               blurRadius: 30,
                               offset: const Offset(0, 15),
                             ),
@@ -212,22 +212,22 @@ class _AuthScreenState extends State<AuthScreen> with SingleTickerProviderStateM
                                          begin: Alignment.topLeft,
                                          end: Alignment.bottomRight,
                                          colors: [
-                                           Colors.white.withOpacity(isDark ? 0.28 : 0.68),
-                                           Colors.white.withOpacity(isDark ? 0.06 : 0.16),
+                                           Colors.white.withValues(alpha: isDark ? 0.28 : 0.68),
+                                           Colors.white.withValues(alpha: isDark ? 0.06 : 0.16),
                                          ],
                                        ),
                                        border: Border.all(
-                                         color: Colors.white.withOpacity(isDark ? 0.5 : 0.9),
+                                         color: Colors.white.withValues(alpha: isDark ? 0.5 : 0.9),
                                          width: 1.8,
                                        ),
                                        boxShadow: [
                                          BoxShadow(
-                                           color: Colors.black.withOpacity(isDark ? 0.45 : 0.14),
+                                           color: Colors.black.withValues(alpha: isDark ? 0.45 : 0.14),
                                            blurRadius: 18,
                                            offset: const Offset(0, 9),
                                          ),
                                          BoxShadow(
-                                           color: themeColor.withOpacity(isDark ? 0.3 : 0.2),
+                                           color: themeColor.withValues(alpha: isDark ? 0.3 : 0.2),
                                            blurRadius: 22,
                                            spreadRadius: -2,
                                          ),
@@ -247,7 +247,7 @@ class _AuthScreenState extends State<AuthScreen> with SingleTickerProviderStateM
                                 // Sliding switcher segmented control
                                 Container(
                                   decoration: BoxDecoration(
-                                    color: Colors.black.withOpacity(0.12),
+                                    color: Colors.black.withValues(alpha: 0.12),
                                     borderRadius: BorderRadius.circular(16),
                                   ),
                                   padding: const EdgeInsets.all(4),
@@ -358,7 +358,7 @@ class _AuthScreenState extends State<AuthScreen> with SingleTickerProviderStateM
                                        shape: RoundedRectangleBorder(
                                          borderRadius: BorderRadius.circular(16),
                                        ),
-                                       shadowColor: themeColor.withOpacity(0.3),
+                                       shadowColor: themeColor.withValues(alpha: 0.3),
                                      ),
                                      child: isLoading
                                          ? SizedBox(
@@ -429,13 +429,13 @@ class _AuthScreenState extends State<AuthScreen> with SingleTickerProviderStateM
       cursorColor: Colors.white,
       decoration: InputDecoration(
         labelText: label,
-        labelStyle: TextStyle(color: Colors.white.withOpacity(0.8)),
-        prefixIcon: Icon(icon, color: Colors.white.withOpacity(0.8)),
+        labelStyle: TextStyle(color: Colors.white.withValues(alpha: 0.8)),
+        prefixIcon: Icon(icon, color: Colors.white.withValues(alpha: 0.8)),
         filled: true,
-        fillColor: Colors.black.withOpacity(0.18),
+        fillColor: Colors.black.withValues(alpha: 0.18),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(16),
-          borderSide: BorderSide(color: Colors.white.withOpacity(0.15)),
+          borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.15)),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(16),
@@ -463,13 +463,13 @@ class _AuthScreenState extends State<AuthScreen> with SingleTickerProviderStateM
       dropdownColor: isDark ? const Color(0xFF161618) : Colors.white,
       decoration: InputDecoration(
         labelText: 'Lingua app preferita',
-        labelStyle: TextStyle(color: Colors.white.withOpacity(0.8)),
-        prefixIcon: Icon(Icons.language_rounded, color: Colors.white.withOpacity(0.8)),
+        labelStyle: TextStyle(color: Colors.white.withValues(alpha: 0.8)),
+        prefixIcon: Icon(Icons.language_rounded, color: Colors.white.withValues(alpha: 0.8)),
         filled: true,
-        fillColor: Colors.black.withOpacity(0.18),
+        fillColor: Colors.black.withValues(alpha: 0.18),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(16),
-          borderSide: BorderSide(color: Colors.white.withOpacity(0.15)),
+          borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.15)),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(16),
@@ -518,13 +518,13 @@ class _TabButton extends StatelessWidget {
         padding: const EdgeInsets.symmetric(vertical: 12),
         alignment: Alignment.center,
         decoration: BoxDecoration(
-          color: isSelected ? Colors.white.withOpacity(0.25) : Colors.transparent,
+          color: isSelected ? Colors.white.withValues(alpha: 0.25) : Colors.transparent,
           borderRadius: BorderRadius.circular(12),
         ),
         child: Text(
           title,
           style: TextStyle(
-            color: isSelected ? Colors.white : Colors.white.withOpacity(0.6),
+            color: isSelected ? Colors.white : Colors.white.withValues(alpha: 0.6),
             fontWeight: FontWeight.bold,
             fontSize: 15,
           ),

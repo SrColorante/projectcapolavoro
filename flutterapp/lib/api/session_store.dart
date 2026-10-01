@@ -20,8 +20,13 @@ abstract class SecureStore {
 class PlatformSecureStore implements SecureStore {
   const PlatformSecureStore();
 
+  // `encryptedSharedPreferences` e' deprecato nella versione corrente del
+  // plugin e viene ignorato: i dati vengono migrati automaticamente a cifrari
+  // propri al primo accesso. Indicarlo esplicitamente sarebbe fuorviante,
+  // perche' lascerebbe credere di configurare qualcosa che non e' piu'
+  // configurabile. La protezione resta garantita dal Keychain su iOS/macOS e
+  // dal cifrario del plugin su Android.
   static const FlutterSecureStorage _storage = FlutterSecureStorage(
-    aOptions: AndroidOptions(encryptedSharedPreferences: true),
     iOptions: IOSOptions(
       accessibility: KeychainAccessibility.first_unlock_this_device,
     ),
