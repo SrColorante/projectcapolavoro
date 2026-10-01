@@ -60,7 +60,7 @@ class ChatThread {
       throw ArgumentError.value(
         participantId,
         'participantId',
-        'Participant ID must be a valid phone number (8-15 digits) for 1-to-1 chats',
+        'Participant ID must be a valid phone number (10 digits) for 1-to-1 chats',
       );
     }
   }

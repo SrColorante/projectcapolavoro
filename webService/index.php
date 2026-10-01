@@ -1,200 +1,275 @@
 <?php
-header("Content-Type: application/json; charset=UTF-8");
-header("Access-Control-Allow-Methods: GET, POST, PATCH, OPTIONS");
-header("Access-Control-Allow-Origin: *");
-header("Access-Control-Allow-Headers: Content-Type, X-App-Key, X-App-Timestamp, X-App-Signature");
+/**
+ * index.php — Front controller di Quice.
+ *
+ * Differenze rispetto alla versione precedente:
+ *  - l'identita' dell'utente NON arriva piu' da `?user_id=`. Viene risolta da
+ *    un token Bearer; se manca, la richiesta e' anonima e solo gli endpoint
+ *    pubblici (auth, privacy info) rispondono.
+ *  - il log non riporta piu' la query string, che conteneva il numero di
+ *    telefono dell'utente. Si registra solo metodo, risorsa e correlation id.
+ *  - le eccezioni non riversano piu' il proprio messaggio al client in
+ *    produzione: prima ogni errore interno veniva risposto testualmente,
+ *    esponendo struttura del database e dettagli di connessione.
+ *  - il routing e' una mappa esplicita: nessun `require` costruito da input.
+ */
 
-// Register custom global exception handler to return JSON and HTTP 500
-set_exception_handler(function ($e) {
-    http_response_code(500);
-    echo json_encode([
-        "success" => false,
-        "error" => "Errore del server: " . $e->getMessage()
+declare(strict_types=1);
+
+require_once __DIR__ . '/lib/config.php';
+require_once __DIR__ . '/lib/db.php';
+require_once __DIR__ . '/lib/http.php';
+require_once __DIR__ . '/lib/logging.php';
+require_once __DIR__ . '/lib/auth.php';
+require_once __DIR__ . '/lib/privacy.php';
+require_once __DIR__ . '/lib/consent.php';
+require_once __DIR__ . '/lib/upload.php';
+
+Config::bootstrap();
+
+// Gli header vanno emessi prima di qualunque output.
+Http::applySecurityHeaders();
+Http::applyCors();
+Http::preflightIfNeeded();
+
+/**
+ * Traduce un'eccezione non gestita in una risposta JSON.
+ *
+ * In produzione il messaggio e' generico: il dettaglio va nel log tecnico,
+ * non nella risposta, perche' contiene informazioni sulla struttura del
+ * sistema. In sviluppo resta leggibile per il debug.
+ */
+set_exception_handler(static function (Throwable $e): void {
+    $status = 500;
+    $message = 'Errore interno del server.';
+
+    if ($e instanceof PDOException) {
+        Logger::technical('error', 'Errore database', [
+            'type' => get_class($e),
+            'message' => $e->getMessage(),
+        ]);
+    } else {
+        Logger::technical('error', 'Eccezione non gestita', [
+            'type' => get_class($e),
+            'message' => $e->getMessage(),
+            'file' => basename($e->getFile()) . ':' . $e->getLine(),
+        ]);
+    }
+
+    if (!Config::isProduction()) {
+        $message .= ' [' . get_class($e) . ': ' . $e->getMessage() . ']';
+    }
+
+    Logger::audit('request.failed', null, 'http', null, 'error', [
+        'cid' => Logger::correlationId(),
     ]);
-    exit;
+
+    Http::error($message, $status);
 });
 
-// Convert PHP errors/warnings to exceptions so they are caught by the handler
-set_error_handler(function ($severity, $message, $file, $line) {
-    if (!(error_reporting() & $severity)) {
-        return;
+// Gli warning e i notice diventano eccezioni, ma senza interrompere la
+// richiesta su E_DEPRECATED/E_NOTICE, che nel codice legacy sono frequenti.
+set_error_handler(static function (int $severity, string $message, string $file, int $line): bool {
+    if ((error_reporting() & $severity) === 0) {
+        return false;
+    }
+    if ($severity === E_DEPRECATED || $severity === E_USER_DEPRECATED) {
+        Logger::technical('debug', 'Deprecato: ' . $message, [
+            'file' => basename($file) . ':' . $line,
+        ]);
+        return true;
     }
     throw new ErrorException($message, 0, $severity, $file, $line);
 });
 
-if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
-    http_response_code(204);
-    exit;
-}
-
-require_once 'db.php';
-
-function is_ten_digit_id($value): bool {
-    return is_string($value) && preg_match('/^\d{10}$/', $value) === 1;
-}
-
-function is_valid_phone_id($value): bool {
-    return (is_string($value) || is_numeric($value)) && preg_match('/^\d{10}$/', $value) === 1;
-}
-
-function get_signing_secrets(): array {
-    $configured_secret = getenv('CRIMSON_CHAT_APP_SECRET');
-    if ($configured_secret === false || $configured_secret === '') {
-        $configured_secret = 'crimson-chat-signing-secret-2026-v1-please-rotate';
-    }
-
-    return [
-        'crimson-chat-v1' => $configured_secret
-    ];
-}
-
-function build_normalized_query(string $query_string): string {
-    if ($query_string === '') {
-        return '';
-    }
-
-    parse_str($query_string, $query_params);
-    if (!is_array($query_params)) {
-        return '';
-    }
-
-    ksort($query_params);
-    return http_build_query($query_params, '', '&', PHP_QUERY_RFC3986);
-}
-
-function build_canonical_request(string $method, string $path, string $query_string, string $timestamp, string $body): string {
-    return implode("\n", [
-        strtoupper($method),
-        $path,
-        build_normalized_query($query_string),
-        $timestamp,
-        $body
-    ]);
-}
-
-function reject_unsigned_request(string $message): void {
-    http_response_code(401);
-    echo json_encode(["error" => $message]);
-    exit;
-}
-
-function validate_app_signature(string $raw_input): void {
-    $provided_key = $_SERVER['HTTP_X_APP_KEY'] ?? '';
-    $provided_timestamp = $_SERVER['HTTP_X_APP_TIMESTAMP'] ?? '';
-    $provided_signature = $_SERVER['HTTP_X_APP_SIGNATURE'] ?? '';
-
-    if ($provided_key === '' || $provided_timestamp === '' || $provided_signature === '') {
-        reject_unsigned_request("Richiesta non autorizzata");
-    }
-
-    if (!ctype_digit($provided_timestamp)) {
-        reject_unsigned_request("Timestamp richiesta non valido");
-    }
-
-    $timestamp = intval($provided_timestamp);
-    if (abs(time() - $timestamp) > 300) {
-        reject_unsigned_request("Richiesta scaduta");
-    }
-
-    $secrets = get_signing_secrets();
-    $secret = $secrets[$provided_key] ?? null;
-    if ($secret === null) {
-        reject_unsigned_request("Chiave app non valida");
-    }
-
-    $request_path = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH) ?? '';
-    $request_query = parse_url($_SERVER['REQUEST_URI'], PHP_URL_QUERY) ?? '';
-    $canonical_request = build_canonical_request(
-        $_SERVER['REQUEST_METHOD'],
-        $request_path,
-        $request_query,
-        $provided_timestamp,
-        $raw_input
+try {
+    Config::assertConfigured();
+} catch (RuntimeException $e) {
+    Http::error(
+        'Configurazione del server incompleta. Contatta l\'amministratore.',
+        503
     );
-    $expected_signature = base64_encode(hash_hmac('sha256', $canonical_request, $secret, true));
-
-    if (!hash_equals($expected_signature, $provided_signature)) {
-        reject_unsigned_request("Firma richiesta non valida");
-    }
+    Logger::technical('critical', 'Configurazione incompleta', ['reason' => $e->getMessage()]);
+    exit;
 }
 
-// LOG per debuggare le richieste in arrivo (visibili nel file error_log di XAMPP/Apache)
-error_log("=== NUOVA RICHIESTA ===");
-error_log("Metodo: " . $_SERVER['REQUEST_METHOD']);
-error_log("URI: " . $_SERVER['REQUEST_URI']);
-$raw_input = file_get_contents('php://input');
-$input = json_decode($raw_input, true);
+$requestPath = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
+$requestQuery = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_QUERY) ?: '';
+$rawBody = Http::body();
+$input = json_decode($rawBody, true);
 if (!is_array($input)) {
     $input = [];
 }
-if ($raw_input !== '') {
-    error_log("Body length: " . strlen($raw_input));
+
+/*
+ * `serve_file` e' instradato prima di ogni altra cosa: e' l'unico endpoint
+ * che non accetta un corpo JSON e che serve byte, non JSON.
+ *
+ * La lettura di `$_GET['route']` e' protetta: senza controllo, ogni richiesta
+ * priva del parametro produceva un avviso "Undefined array key", che il
+ * gestore degli errori trasformava in eccezione e quindi in HTTP 500.
+ */
+$routeParam = is_string($_GET['route'] ?? null) ? strval($_GET['route']) : '';
+$scriptName = basename(explode('?', $_SERVER['REQUEST_URI'] ?? '/')[0]);
+
+if ($routeParam === 'auth' || $routeParam === 'index' || $routeParam === 'webService') {
+    $routeParam = 'auth';
 }
-// Controlla se è una richiesta per servire file statici (nessuna firma richiesta)
-if (
-    (isset($_GET['route']) && $_GET['route'] === 'serve_file') ||
-    strpos($_SERVER['REQUEST_URI'], 'route=serve_file') !== false ||
-    basename(explode('?', $_SERVER['REQUEST_URI'])[0]) === 'serve_file'
-) {
-    require 'serve_file.php';
+$resource = in_array($scriptName, ['index.php', 'index', 'webService', ''], true)
+    ? ($routeParam === '' ? 'auth' : $routeParam)
+    : $scriptName;
+
+if ($scriptName === 'serve_file' || $routeParam === 'serve_file') {
+    require __DIR__ . '/serve_file.php';
     exit;
 }
 
-validate_app_signature($raw_input);
+// Log tecnico senza dati personali: niente query string (contiene identificativi).
+Logger::technical('info', 'Richiesta ricevuta', [
+    'method' => Http::method(),
+    'resource' => $resource,
+    'cid' => Logger::correlationId(),
+]);
 
-// Estrai l'endpoint dall'URL
-$request_uri = explode('?', $_SERVER['REQUEST_URI'], 2)[0];
-$resource = basename($request_uri);
-
-// Fix per server senza mod_rewrite abilitato (.htaccess ignorato)
-// Se la richiesta arriva a index.php, guardiamo il parametro ?route=...
-if ($resource === 'index.php' || $resource === 'index' || $resource === 'webService') {
-    $resource = $_GET['route'] ?? 'auth';
-}
-
-error_log("Risorsa calcolata per il routing: " . $resource);
-
-// Simulazione utente autenticato
-$current_user_id = isset($_GET['user_id']) ? str_replace(' ', '', $_GET['user_id']) : null;
-
-if ($current_user_id !== null && !is_valid_phone_id($current_user_id)) {
-    error_log("Errore: user_id non valido");
-    http_response_code(400);
-    echo json_encode(["error" => "user_id deve essere numerico e di 10 cifre"]);
+/*
+ * Verifica della firma HMAC.
+ *
+ * Il segreto vive nel binario del client, quindi NON e' un segreto: questa
+ * verifica protegge da manomissione e replay, non autentica. L'autenticazione
+ * e' il token di sessione. La firma resta utile perche' rende non immediatamente
+ * utilizzabile un endpoint catturato da un terzo.
+ */
+if (!validate_request_signature($rawBody, $requestPath, $requestQuery)) {
+    Logger::audit('request.rejected', null, 'http', $resource, 'denied', [
+        'reason' => 'bad_signature',
+    ]);
     exit;
 }
 
-// Routing
-switch ($resource) {
-    case 'chats':
-        error_log("Routing verso: chats.php");
-        require 'resources/chats.php';
-        break;
-    case 'chat':
-        error_log("Routing verso: chat.php");
-        require 'resources/chat.php';
-        break;
-    case 'settings':
-        error_log("Routing verso: settings.php");
-        require 'resources/settings.php';
-        break;
-    case 'auth':
-        error_log("Routing verso: auth.php");
-        require 'resources/auth.php';
-        break;
-    case 'security':
-        error_log("Routing verso: security.php");
-        require 'resources/security.php';
-        break;
-    case 'files':
-        error_log("Routing verso: files.php");
-        require 'resources/files.php';
-        break;
-    default:
-        error_log("Errore 404: Risorsa '$resource' non trovata.");
-        http_response_code(404);
-        echo json_encode(["error" => "Risorsa non trovata. Endpoint validi: /chats, /chat, /settings, /auth, /security, /files"]);
-        break;
+/**
+ * Verifica la firma HMAC della richiesta e la freschezza del timestamp.
+ */
+function validate_request_signature(string $rawBody, string $requestPath, string $requestQuery): bool
+{
+    $key = $_SERVER['HTTP_X_APP_KEY'] ?? '';
+    $timestamp = $_SERVER['HTTP_X_APP_TIMESTAMP'] ?? '';
+    $signature = $_SERVER['HTTP_X_APP_SIGNATURE'] ?? '';
+
+    if ($key === '' || $timestamp === '' || $signature === '') {
+        reject_signed_request('Richiesta non autorizzata');
+    }
+    if (!ctype_digit(strval($timestamp))) {
+        reject_signed_request('Timestamp non valido');
+    }
+    if (abs(time() - intval($timestamp)) > 300) {
+        reject_signed_request('Richiesta scaduta');
+    }
+    if (hash_equals('crimson-chat-v1', strval($key)) === false) {
+        reject_signed_request('Chiave app non valida');
+    }
+
+    $canonical = implode("\n", [
+        strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET'),
+        $requestPath,
+        build_normalized_query(strval($requestQuery)),
+        strval($timestamp),
+        $rawBody,
+    ]);
+
+    $expected = base64_encode(
+        hash_hmac('sha256', $canonical, Config::appSigningSecret(), true)
+    );
+
+    if (!hash_equals($expected, strval($signature))) {
+        reject_signed_request('Firma non valida');
+    }
+
+    return true;
 }
-error_log("=== FINE RICHIESTA ===");
-?>
+
+function build_normalized_query(string $queryString): string
+{
+    if ($queryString === '') {
+        return '';
+    }
+    parse_str($queryString, $params);
+    if (!is_array($params)) {
+        return '';
+    }
+    ksort($params);
+    return http_build_query($params, '', '&', PHP_QUERY_RFC3986);
+}
+
+function reject_signed_request(string $message): void
+{
+    Http::error($message, 401);
+    exit;
+}
+
+/*
+ * Risoluzione dell'identita' dal token Bearer.
+ *
+ * `$current_user_id` viene impostato SOLO qui. Nessun endpoint lo legge dalla
+ * query string: era esattamente il buco che permetteva l'impersonazione.
+ */
+$current_user_id = null;
+$current_session = null;
+$current_user = null;
+
+$bearer = Http::bearerToken();
+if ($bearer !== null) {
+    $resolved = Auth::resolveToken($bearer);
+    if ($resolved !== null) {
+        $current_user_id = $resolved['user_id'];
+        $current_session = $resolved;
+        $current_user = $resolved['user'];
+    }
+}
+
+/** Endpoint che richiedono una sessione valida. */
+function require_authentication(): void
+{
+    global $current_user_id;
+    if ($current_user_id === null) {
+        Logger::audit('request.unauthenticated', null, 'http', null, 'denied');
+        Http::error('Sessione mancante o scaduta. Accedi di nuovo.', 401);
+    }
+}
+
+/** Blocca le richieste se l'utente ha chiesto la limitazione del trattamento. */
+function require_processing_allowed(): void
+{
+    global $current_user_id;
+    if ($current_user_id === null) {
+        return;
+    }
+    if (Privacy::isRestricted($current_user_id)) {
+        Http::error(
+            'Il trattamento dei tuoi dati e\' limitato. Riattivalo dalle impostazioni '
+            . 'sulla privacy per inviare nuovi messaggi.',
+            403
+        );
+    }
+}
+
+$routes = [
+    'auth'       => __DIR__ . '/resources/auth.php',
+    'chats'      => __DIR__ . '/resources/chats.php',
+    'chat'       => __DIR__ . '/resources/chat.php',
+    'settings'   => __DIR__ . '/resources/settings.php',
+    'security'   => __DIR__ . '/resources/security.php',
+    'files'      => __DIR__ . '/resources/files.php',
+    'privacy'    => __DIR__ . '/resources/privacy.php',
+    'users'      => __DIR__ . '/resources/users.php',
+];
+
+$target = $routes[$resource] ?? null;
+if ($target === null) {
+    Http::error(
+        'Risorsa non trovata. Endpoint validi: ' . implode(', ', array_keys($routes)),
+        404
+    );
+    exit;
+}
+
+require $target;

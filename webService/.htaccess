@@ -1,4 +1,60 @@
+# =====================================================================
+#  Quice — regole del DocumentRoot
+# =====================================================================
+
+# --- Che cosa non deve mai essere raggiungibile via web ---------------
+#
+# `webService/` e' il DocumentRoot, quindi percorribile. Contiene pero'
+# cose che non devono essere servite: i segreti (.env), le librerie interne
+# (lib/), i test e lo script di migrazione.
+#
+# Gli endpoint pubblici sono soltanto index.php, serve_file.php e
+# migrations. Tutto il resto deve rispondere 404.
+
+<FilesMatch "(^\.env|\.env\..*|composer\.(json|lock)|PRIVACY_POLICY_VERSION|.*\.sql|\.log)$">
+  Require all denied
+</FilesMatch>
+
+RedirectMatch 404 ^/(lib|tests|python|vendor)(/|$)
+
+# `migrate.php` contiene credenziali di esempio e logica di amministrazione:
+# si esegue solo da riga di comando, mai via HTTP.
+<Files "migrate.php">
+  Require all denied
+</Files>
+
+# Gli header di sicurezza valgono per le risposte HTML/JSON dell'API.
+<IfModule mod_headers.c>
+  Header always set X-Content-Type-Options "nosniff"
+  Header always set X-Frame-Options "DENY"
+  Header always set Referrer-Policy "no-referrer"
+  Header always unset X-Powered-By
+  # In produzione abilitare anche:
+  # Header always set Strict-Transport-Security "max-age=31536000; includeSubDomains"
+</IfModule>
+
+# --- Riscrittura verso il front controller ---------------------------
+# Necessaria per /chats, /chat, /settings, /privacy, /users, /files.
+# Richiede AllowOverride All (o superiore) sulla directory.
+#
+# Attenzione: con `php -S` queste regole vengono IGNORATE. In quel caso
+# il fallback e' il parametro `?route=`, es. /index.php?route=chats.
 RewriteEngine On
+
+# Gli upload sono serviti esclusivamente da serve_file.php, che verifica
+# la sessione e l'appartenenza alla chat. Un accesso diretto a /uploads/
+# deve fallire, altrimenti le protezioni dell'endpoint sarebbero inutili.
+RewriteRule ^uploads/ - [F,L]
+
 RewriteCond %{REQUEST_FILENAME} !-f
 RewriteCond %{REQUEST_FILENAME} !-d
 RewriteRule ^(.*)$ index.php [QSA,L]
+
+# --- Limiti di caricamento -------------------------------------------
+# Coerenti con QUICE_MAX_UPLOAD_BYTES (50 MiB). Se l'amministratore li
+# alza, va alzato anche il valore in .env: altrimenti PHP rifiuta il file
+# prima che l'applicazione possa rispondere con un messaggio utile.
+<IfModule mod_php.c>
+  php_value upload_max_filesize 50M
+  php_value post_max_size 52M
+</IfModule>

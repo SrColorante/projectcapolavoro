@@ -1,0 +1,213 @@
+INFORMATIVA SUL TRATTAMENTO DEI DATI PERSONALI
+Quice — messaggistica per reti locali
+Versione 1.0.0 — 1 ottobre 2026
+
+────────────────────────────────────────────────────────────────────────
+1. TITOLARE DEL TRATTAMENTO
+────────────────────────────────────────────────────────────────────────
+Titolare:            [DA COMPLETARE: nome o ragione sociale]
+Sede:                [DA COMPLETARE: indirizzo]
+P. IVA / C.F.:       [DA COMPLETARE]
+Email di contatto:   [DA COMPLETARE: indirizzo di posta elettronica]
+Responsabile del     [DA COMPLETARE]
+trattamento:
+
+NOTA IMPORTANTE
+Questo documento è un modello. I campi tra parentesi quadre devono essere
+completati con i dati reali di chi gestisce l'installazione prima che il
+servizio venga offerto a utilizzatori. Un'informativa priva di un titolare
+identificato non soddisfa l'art. 13 del Regolamento (UE) 2016/679.
+
+────────────────────────────────────────────────────────────────────────
+2. DESCRIZIONE DEL SERVIZIO
+────────────────────────────────────────────────────────────────────────
+Quice è un'applicazione di messaggistica pensata per reti locali (laboratori
+informatici, scuole, ambienti isolati dalla rete pubblica). I messaggi
+transitano su un server installato dall'utente o dall'organizzazione e restano
+sull'infrastruttura locale: non viene effettuato alcun trasferimento a
+servizi terzi di messaggistica.
+
+────────────────────────────────────────────────────────────────────────
+3. DATI TRATTATI, FINALITÀ E BASI GIURIDICHE
+────────────────────────────────────────────────────────────────────────
+3.1 Dati identificativi e di accesso
+    Dati:           numero di telefono (10 cifre), nome, nickname, indirizzo
+                   email (facoltativo), hash della password, stato della
+                   sessione, etichetta del dispositivo.
+    Finalità:       creazione e autenticazione dell'account, erogazione del
+                   servizio.
+    Base giuridica: art. 6(1)(b) — esecuzione del contratto.
+
+3.2 Contenuto delle conversazioni
+    Dati:           testi dei messaggi, identificativo della chat, orario,
+                   stato di consegna e lettura, file allegati, presenza.
+    Finalità:       erogazione del servizio di messaggistica.
+    Base giuridica: art. 6(1)(b) — esecuzione del contratto.
+    Nota:           la base non è il consenso. Il consenso non può essere la
+                   base per rendere lecito ciò che il servizio è per sua
+                   natura.
+
+3.3 Traduzione on-device
+    Dati:           testo dei messaggi, elaborati sul dispositivo tramite il
+                   modello ML Kit. Il testo non viene inviato a servizi
+                   esterni.
+    Finalità:       traduzione dei messaggi.
+    Base giuridica: art. 6(1)(a) — consenso, revocabile in qualsiasi momento.
+    Disattivabile:  Impostazioni → Privacy e dati.
+
+3.4 Condivisione diretta sulla rete locale
+    Dati:           contenuto dei messaggi trasferiti direttamente ad altri
+                   dispositivi presenti sulla stessa rete, previa
+                   autorizzazione del destinatario.
+    Finalità:       recapito dei messaggi anche in assenza del server.
+    Base giuridica: art. 6(1)(a) — consenso, revocabile in qualsiasi momento.
+    Nota:           senza questo consenso l'applicazione non apre porte di
+                   rete locale e non si annuncia in mDNS.
+    Disattivabile:  Impostazioni → Privacy e dati.
+
+3.5 Bio vocale
+    Dati:           registrazione audio del profilo, durata massima 5 secondi.
+    Finalità:       presentazione del profilo.
+    Base giuridica: art. 6(1)(a) — consenso esplicito. Trattandosi di dati
+                   vocali, il consenso è richiesto in modo separato rispetto
+                   agli altri trattamenti facoltativi.
+    Disattivabile:  Impostazioni → Privacy e dati.
+
+3.6 Diagnostica
+    Dati:           [DA COMPLETARE: indicare se il trattamento è effettivamente
+                   implementato. Se non lo è, rimuovere questa sezione.]
+    Base giuridica: art. 6(1)(a) — consenso.
+
+3.7 Sicurezza e registro delle attività
+    Dati:           orario, azione, esito, identificativo dell'utente in forma
+                   pseudonima (hash HMAC con chiave separata), hash
+                   troncato dell'indirizzo IP.
+    Finalità:       accertare responsabilità e dimostrare l'osservanza delle
+                   norme di sicurezza, come richiesto dall'art. 5(2).
+    Base giuridica: art. 6(1)(c) — obbligo legale di accountability; e
+                   art. 32 — misure di sicurezza.
+    Conservazione:  730 giorni.
+    Nota:           l'indirizzo IP non viene mai conservato in chiaro. Al
+                   momento della cancellazione dell'account l'identificativo
+                   diretto viene rimosso e resta solo lo pseudonimo.
+
+────────────────────────────────────────────────────────────────────────
+4. DESTINATARI E TRASFERIMENTI
+────────────────────────────────────────────────────────────────────────
+4.1 Nessun trasferimento a terzi
+    I dati non sono ceduti, venduti o trasferiti a soggetti terzi. Non
+    vengono utilizzati servizi di analytics, di advertising o di
+    messaggistica di terze parti.
+
+4.2 Interlocutori della conversazione
+    I messaggi sono accessibili, per loro natura, ai partecipanti della
+    conversazione. Chiunqueunque abbia accesso al dispositivo può quindi leggere
+    le conversazioni su cui quel dispositivo ha accesso. (riferimento:
+    [DA COMPLETARE: indicare la base del trattamento, es. art. 6(1)(b),
+    nel rispetto dei diritti dei terzi])
+
+4.3 Persone autorizzate del titolare
+    [DA COMPLETARE: indicare gli eventuali amministratori di sistema con
+    accesso ai dati, e le misure applicate]
+
+────────────────────────────────────────────────────────────────────────
+5. CONSERVAZIONE
+────────────────────────────────────────────────────────────────────────
+I dati personali sono conservati per il tempo necessario alla finalità.
+Termini applicati, configurabili dall'amministratore:
+
+    Messaggi               365 giorni
+    File allegati          180 giorni
+    Sessioni                30 giorni
+    Registro attività      730 giorni
+    Prove di consenso     1825 giorni (5 anni)
+    Account ospite           7 giorni
+
+Le prove di consenso sopravvivono alla cancellazione dell'account, in forma
+pseudonima: la loro conservazione è necessaria per dimostrare la liceità del
+trattamento (art. 7(1), art. 17(3)(b)).
+
+La cancellazione fisica avviene tramite un processo automatizzato:
+    php webService/migrate.php retention      (conservazione)
+    php webService/migrate.php purge          (cancellazioni definitive)
+
+────────────────────────────────────────────────────────────────────────
+6. I DIRITTI DELL'INTERESSATO
+────────────────────────────────────────────────────────────────────────
+Tutti esercitabili dall'applicazione, in Impostazioni → Privacy e dati,
+senza dover scrivere al titolare.
+
+6.1 Accesso e portabilità (art. 15 e 20)
+    "Scarica tutti i miei dati" produce un file JSON contenente profilo,
+    conversazioni, messaggi, file, sessioni, consensi e registro attività.
+    Il formato è leggibile da macchina e strutturato, come richiesto
+    dall'art. 20.
+
+6.2 Rettifica (art. 16)
+    Dalla sezione profilo, senza limitazioni.
+
+6.3 Cancellazione (art. 17)
+    "Elimina il mio account" avvia una richiesta. L'account viene congelato
+    (nuove sessioni bloccate) e i dati sono eliminati in modo definitivo al
+    termine di un periodo di attesa, che consente di annullare la richiesta.
+    La cancellazione comprende profilo, messaggi, file su disco, sessioni e
+    registri di accesso.
+    Non vengono cancellati i dati di terzi che non hanno chiesto la
+    cancellazione (art. 17(2)).
+
+6.4 Limitazione del trattamento (art. 18)
+    "Limita il trattamento" blocca l'invio di nuovi messaggi mantenendo
+    accesso, rettifica, portabilità e cancellazione.
+
+6.5 Opposizione e ritiro del consenso (art. 21 e 7(3))
+    Ogni trattamento facoltativo ha il proprio interruttore. Il ritiro è
+    immediato e ha la stessa semplicità della concessione, come richiesto
+    dall'art. 7(3).
+
+6.6 Reclamo
+    [DA COMPLETARE: Garante per la protezione dei dati personali
+    www.garanteprivacy.it — Piazza Vittorio Emanuele II, 121, 00186 Roma;
+    e-mail: protocollo@gpdp.it]
+
+────────────────────────────────────────────────────────────────────────
+7. SICUREZZA
+────────────────────────────────────────────────────────────────────────
+    - Autenticazione a token di sessione opaco; il token è conservato solo
+      come hash SHA-256 nel database e in un archivio sicuro del dispositivo.
+    - La password è memorizzata con bcrypt e non viene mai salvata sul
+      dispositivo né reinviata a ogni richiesta.
+    - Verifica dei certificati TLS attiva: non sono accettati certificati
+      non validi.
+    - I file caricati vengono verificati sul contenuto reale, non sulla
+      dichiarazione del mittente; l'estensione è assegnata dal server.
+    - I file non sono scaricabili direttamente: l'endpoint di consegna
+      verifica la sessione e l'appartenenza alla chat.
+    - Nel registro attività non compaiono dati personali in chiaro.
+
+────────────────────────────────────────────────────────────────────────
+8. MINORI
+────────────────────────────────────────────────────────────────────────
+L'identificativo dell'utente è un numero di telefono e il servizio è
+destinato a ambienti scolastici e di formazione, quindi può essere usato da
+minori.
+
+[DA COMPLETARE — obbligatorio prima di offrire il servizio a minori]
+    - Individuare il titolare del trattamento per i dati dei minori di età,
+      che in generale coincide con chi esercita la responsabilità genitoriale
+      o il tutore, salvo che il trattamento sia effettuato nell'interesse del
+      diretto interessato (art. 8).
+    - Prevedere un meccanismo di consenso verificabile da parte del titolare
+      della responsabilità genitoriale.
+    - Informare i minori in modo chiaro e adatto alla loro età.
+    - Definire la base giuridica: art. 6(1)(c) se il trattamento è
+      necessario per adempiere a obblighi scolastici, oppure art. 6(1)(a).
+
+Fino a quando questa sezione non è completata, il servizio non deve essere
+offerto a soggetti di età inferiore a 18 anni.
+
+────────────────────────────────────────────────────────────────────────
+9. MODIFICHE
+────────────────────────────────────────────────────────────────────────
+Ogni modifica sostanziale incrementa la versione dell'informativa (file
+webService/PRIVACY_POLICY_VERSION) e viene registrata come nuova decisione di
+consenso per gli utenti interessati.

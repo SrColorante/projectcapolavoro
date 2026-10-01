@@ -1,325 +1,304 @@
-import 'dart:convert';
-
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import '../models/user_profile.dart';
-import '../services/app_request_signer.dart';
+import 'api_client.dart';
+import 'api_config.dart';
+import 'session_store.dart';
 
-class AuthApi { 
+/// Risultato di un accesso riuscito: profilo e dati di sessione.
+class AuthSession {
+  const AuthSession({
+    required this.profile,
+    required this.token,
+    required this.expiresAt,
+    this.cancellationPending = false,
+  });
+
+  final UserProfile profile;
+  final String token;
+  final String expiresAt;
+  final bool cancellationPending;
+}
+
+class AuthApi {
+  AuthApi({http.Client? client, String? baseUrl, SessionStore? store})
+      : _store = store ?? sessionStore,
+        _api = ApiClient(client: client, baseUrl: baseUrl, store: store ?? sessionStore);
+
   static const String _defaultUserName = 'Nuovo utente';
-  static const String _defaultBaseUrl =
-      'https://1cdc-93-71-139-206.ngrok-free.app/index.php';
-  static http.Client _client = http.Client();
-  static String baseUrl = _defaultBaseUrl;
 
-  static void configure({http.Client? client, String? baseUrl}) {
-    if (client != null) {
-      _client = client;
+  final ApiClient _api;
+  final SessionStore _store;
+
+  /// Istanza predefinita usata dall'applicazione.
+  static final AuthApi instance = AuthApi();
+
+  static String get baseUrl => ApiConfig.baseUrl;
+
+  @visibleForTesting
+  ApiClient get api => _api;
+
+  // ------------------------------------------------------------------
+  //  Accesso e registrazione
+  // ------------------------------------------------------------------
+
+  /// Registra un nuovo account e avvia la sessione.
+  ///
+  /// Il numero di telefono e' l'identificativo e deve essere di esattamente
+  /// 10 cifre. Prima l'app ne accettava da 8 a 15 e la validazione viveva
+  /// solo lato client: si poteva registrare un numero che il server avrebbe
+  /// poi rifiutato per sempre, bloccando l'utente fuori dal proprio account.
+  static String? validatePhone(String value) {
+    final digits = value.replaceAll(RegExp(r'[\s.]'), '');
+    if (digits.isEmpty) return 'Inserisci il numero di telefono.';
+    if (!RegExp(r'^\d{10}$').hasMatch(digits)) {
+      return 'Il numero deve essere di esattamente 10 cifre.';
     }
-    if (baseUrl != null) {
-      AuthApi.baseUrl = baseUrl;
-    }
+    return null;
   }
 
-  static void reset() {
-    _client = http.Client();
-    baseUrl = _defaultBaseUrl;
+  /// Verifica i requisiti minimi di una password, in modo che l'utente
+  /// riceva subito l'errore senza attendere il server.
+  static String? validatePassword(String value) {
+    if (value.length < 10) {
+      return 'La password deve contenere almeno 10 caratteri.';
+    }
+    if (!RegExp(r'[a-z]').hasMatch(value) ||
+        !RegExp(r'[A-Z]').hasMatch(value) ||
+        !RegExp(r'\d').hasMatch(value)) {
+      return 'Servono almeno una minuscola, una maiuscola e una cifra.';
+    }
+    return null;
   }
 
-  static Future<UserProfile> login({
+  Future<AuthSession> register({
+    required String name,
+    required String phone,
+    required String password,
+    String? email,
+    String preferredLanguageCode = 'en',
+  }) async {
+    final phoneError = validatePhone(phone);
+    if (phoneError != null) throw ApiException(phoneError);
+    final passwordError = validatePassword(password);
+    if (passwordError != null) throw ApiException(passwordError);
+
+    final payload = await _api.post('index.php', body: {
+      'route': 'auth',
+      'action': 'register',
+      'name': name.trim().isEmpty ? _defaultUserName : name.trim(),
+      'phone': phone.replaceAll(RegExp(r'[\s.]'), ''),
+      'password': password,
+      'email': email ?? '',
+      'preferred_language': preferredLanguageCode,
+      'device_label': ApiConfig.deviceLabel,
+    }, query: {'route': 'auth'});
+
+    return _consumeSession(payload, fallbackName: name.trim());
+  }
+
+  Future<AuthSession> login({
     required String phone,
     required String password,
   }) async {
-    final uri = Uri.parse('$baseUrl?route=auth');
-    final body = jsonEncode({
-      'action': 'login',
-      'phone': phone,
-      'password': password,
-    });
-    final response = await _client.post(
-      uri,
-      headers: AppRequestSigner.buildSignedHeaders(
-        method: 'POST',
-        uri: uri,
-        body: body,
-        headers: const {
-          'Content-Type': 'application/json',
-          'ngrok-skip-browser-warning': 'true',
-          'User-Agent': 'QuiceApp/1.0.0',
-        },
-      ),
-      body: body,
-    );
+    final phoneError = validatePhone(phone);
+    if (phoneError != null) throw ApiException(phoneError);
 
-    return _parseProfile(response, fallbackName: 'Utente');
+    final payload = await _api.post('index.php', body: {
+      'route': 'auth',
+      'action': 'login',
+      'phone': phone.replaceAll(RegExp(r'[\s.]'), ''),
+      'password': password,
+      'device_label': ApiConfig.deviceLabel,
+    }, query: {'route': 'auth'});
+
+    return _consumeSession(payload, fallbackName: 'Utente');
   }
 
-  static Future<UserProfile> register({
-    required String name,
-    required String phone,
-    String? email,
-    required String password,
+  /// Accesso come ospite: crea un account usa-e-getta, senza email e senza
+  /// password utilizzabile. I dati dell'ospite scadono automaticamente.
+  Future<AuthSession> guestLogin({
+    String name = 'Ospite',
     String preferredLanguageCode = 'en',
+  }) async {
+    final payload = await _api.post('index.php', body: {
+      'route': 'auth',
+      'action': 'guest_login',
+      'name': name,
+      'preferred_language': preferredLanguageCode,
+      'device_label': ApiConfig.deviceLabel,
+    }, query: {'route': 'auth'});
+
+    return _consumeSession(payload, fallbackName: name.trim().isEmpty ? 'Ospite' : name.trim());
+  }
+
+  /// Disconnessione: revoca il token lato server.
+  ///
+  /// Revocarlo conta: altrimenti il token resterebbe valido fino alla
+  /// scadenza, e su un dispositivo ceduto a qualcun altro continuerebbe a
+  /// funzionare.
+  Future<void> logout() async {
+    try {
+      await _api.post('index.php', body: const {'route': 'auth', 'action': 'logout'},
+          query: const {'route': 'auth'});
+    } catch (_) {
+      // Anche senza rete il token locale va rimosso.
+    } finally {
+      await _store.clear();
+    }
+  }
+
+  Future<void> changePassword({
+    required String currentPassword,
+    required String newPassword,
+  }) async {
+    final error = validatePassword(newPassword);
+    if (error != null) throw ApiException(error);
+    if (currentPassword == newPassword) {
+      throw ApiException('La nuova password deve essere diversa da quella attuale.');
+    }
+
+    final payload = await _api.post('index.php', body: {
+      'route': 'auth',
+      'action': 'change_password',
+      'current_password': currentPassword,
+      'new_password': newPassword,
+    }, query: {'route': 'auth'});
+
+    // Il server emette un token nuovo e revoca gli altri dispositivi: va
+    // salvato subito, altrimenti la sessione corrente si chiude da sola.
+    final token = payload['data']?['token']?.toString();
+    if (token != null && token.isNotEmpty) {
+      await _store.save(
+        token: token,
+        userId: await _store.readUserId() ?? '',
+        expiresAt: payload['data']?['expires_at']?.toString(),
+      );
+    }
+  }
+
+  // ------------------------------------------------------------------
+  //  Profilo
+  // ------------------------------------------------------------------
+
+  /// Salva le preferenze del profilo. L'identita' dell'utente NON viene
+  /// inviata: il server la deduce dal token.
+  Future<UserProfile> updateProfile({
+    required String userId,
+    String? nickname,
+    String? preferredLanguageCode,
     String? profileBio,
     String? profilePhotoUrl,
     String? profileAudioUrl,
     double? profileAudioDurationSeconds,
-    String? e2eePublicKey,
-    bool twoFactorEnabled = false,
-    String? twoFactorChannel,
-    String? twoFactorDestination,
+    bool clearAudio = false,
   }) async {
-    final normalizedName = name.trim().isEmpty ? _defaultUserName : name.trim();
-    final uri = Uri.parse('$baseUrl?route=auth');
-    final body = jsonEncode({
-      'action': 'register',
-      'name': normalizedName,
-      'phone': phone,
-      'email': email ?? '',
-      'password': password,
+    final payload = await _api.post('settings', body: {
+      'nickname': nickname,
       'preferred_language': preferredLanguageCode,
       'profile_bio': profileBio,
       'profile_photo_url': profilePhotoUrl,
-      'profile_audio_url': profileAudioUrl,
-      'profile_audio_duration_seconds': profileAudioDurationSeconds,
-      'e2ee_public_key': e2eePublicKey,
-      'two_factor_enabled': twoFactorEnabled,
-      'two_factor_channel': twoFactorChannel,
-      'two_factor_destination': twoFactorDestination,
+      'profile_audio_url': clearAudio ? '' : profileAudioUrl,
+      'profile_audio_duration_seconds':
+          clearAudio ? null : profileAudioDurationSeconds,
     });
-    final response = await _client.post(
-      uri,
-      headers: AppRequestSigner.buildSignedHeaders(
-        method: 'POST',
-        uri: uri,
-        body: body,
-        headers: const {
-          'Content-Type': 'application/json',
-          'ngrok-skip-browser-warning': 'true',
-          'User-Agent': 'QuiceApp/1.0.0',
-        },
-      ),
-      body: body,
-    );
 
-    return _parseProfile(response, fallbackName: normalizedName);
+    final data = (payload['data'] as Map<String, dynamic>?) ?? const <String, dynamic>{};
+    return _profileFromMap(data, fallbackId: userId);
   }
 
-  static Future<UserProfile> guestLogin({
-    String name = 'Ospite',
-    String preferredLanguageCode = 'en',
-    String? e2eePublicKey,
-  }) async {
-    final uri = Uri.parse('$baseUrl?route=auth');
-    final body = jsonEncode({
-      'action': 'guest_login',
-      'name': name,
-      'preferred_language': preferredLanguageCode,
-      'e2ee_public_key': e2eePublicKey,
-    });
-    final response = await _client.post(
-      uri,
-      headers: AppRequestSigner.buildSignedHeaders(
-        method: 'POST',
-        uri: uri,
-        body: body,
-        headers: const {
-          'Content-Type': 'application/json',
-          'ngrok-skip-browser-warning': 'true',
-          'User-Agent': 'QuiceApp/1.0.0',
-        },
-      ),
-      body: body,
-    );
-
-    return _parseProfile(response, fallbackName: name.trim().isEmpty ? 'Ospite' : name.trim());
+  /// Profilo pubblico di un altro utente. Restituisce solo i dati minimi
+  /// (nome, nickname, foto): email, 2FA e stato di cancellazione di terzi non
+  /// sono esposti, perche' non servono e sono dati identificativi.
+  Future<List<UserProfile>> fetchPublicProfiles(List<String> userIds) async {
+    if (userIds.isEmpty) return const <UserProfile>[];
+    final payload = await _api.get('users',
+        query: {'user_ids': userIds.take(50).join(',')});
+    final data = (payload['data'] as List<dynamic>?) ?? const <dynamic>[];
+    return data
+        .map((item) => _profileFromMap(Map<String, dynamic>.from(item as Map)))
+        .toList(growable: false);
   }
 
-  static UserProfile _parseProfile(
-    http.Response response, {
+  /// I dati propri, compresi quelli identificativi che l'utente stesso puo'
+  /// vedere legittimamente.
+  Future<UserProfile> fetchOwnProfile() async {
+    final payload = await _api.get('users', query: const {'me': '1'});
+    return _profileFromMap(
+      (payload['data'] as Map<String, dynamic>?) ?? const <String, dynamic>{},
+    );
+  }
+
+  // ------------------------------------------------------------------
+  //  Interno
+  // ------------------------------------------------------------------
+
+  /// Estrae profilo e token dalla risposta e li scrive nell'archivio sicuro.
+  Future<AuthSession> _consumeSession(
+    Map<String, dynamic> payload, {
     required String fallbackName,
+  }) async {
+    final data = (payload['data'] as Map<String, dynamic>?) ?? const <String, dynamic>{};
+    final token = data['token']?.toString() ?? '';
+    if (token.isEmpty) {
+      throw ApiException('Il server non ha restituito una sessione valida.');
+    }
+
+    final userData = (data['user'] as Map<String, dynamic>?) ?? data;
+    final profile = _profileFromMap(userData, fallbackName: fallbackName);
+
+    await _store.save(
+      token: token,
+      userId: profile.id,
+      expiresAt: data['expires_at']?.toString(),
+    );
+
+    return AuthSession(
+      profile: profile,
+      token: token,
+      expiresAt: data['expires_at']?.toString() ?? '',
+      cancellationPending: data['cancellation_pending'] == true,
+    );
+  }
+
+  UserProfile _profileFromMap(
+    Map<String, dynamic> data, {
+    String? fallbackId,
+    String? fallbackName,
   }) {
-    print('--- HTTP RESPONSE DEBUG ---');
-    print('Status Code: ${response.statusCode}');
-    print('Headers: ${response.headers}');
-    print('Body: ${response.body}');
-    print('---------------------------');
-
-    if (response.statusCode >= 400) {
-      throw Exception('Errore server (${response.statusCode}):\n${response.body}');
-    }
-
-    dynamic payload;
-    try {
-      payload = jsonDecode(response.body);
-    } catch (e) {
-      print('====== ERRORE DAL SERVER PHP ======');
-      print('Status: ${response.statusCode}');
-      print('Headers: ${response.headers}');
-      print('Body: ${response.body}');
-      print('===================================');
-      throw Exception('Il server PHP ha restituito un errore HTML. Controlla la console per i dettagli.');
-    }
-
-    if (payload is! Map<String, dynamic>) {
-      throw Exception('Risposta non valida dal server.');
-    }
-
-    if (payload['success'] != true) {
-      throw Exception(payload['error'] ?? 'Errore autenticazione.');
-    }
-
-    final data = payload['data'] as Map<String, dynamic>? ?? <String, dynamic>{};
-    final id = data['id']?.toString() ?? UserProfile.generateTenDigitId();
+    final id = data['id']?.toString() ?? fallbackId ?? '';
     final name = data['name']?.toString().trim();
     final nickname = data['nickname']?.toString().trim();
-    final email = data['email']?.toString() ?? '';
-    final profileBio = data['profile_bio']?.toString().trim();
-    final profilePhotoUrl = data['profile_photo_url']?.toString().trim();
-    final profileAudioUrl = data['profile_audio_url']?.toString().trim();
-    final profileAudioDurationRaw = data['profile_audio_duration_seconds'];
-    final profileAudioDuration = profileAudioDurationRaw is num
-        ? profileAudioDurationRaw.toDouble()
-        : double.tryParse(profileAudioDurationRaw?.toString() ?? '');
+    final resolvedName = (name == null || name.isEmpty)
+        ? (fallbackName ?? 'Utente')
+        : name;
+    final resolvedNickname =
+        (nickname == null || nickname.isEmpty) ? resolvedName : nickname;
+
+    final bio = data['profile_bio']?.toString().trim();
+    final photo = data['profile_photo_url']?.toString().trim();
+    final audio = data['profile_audio_url']?.toString().trim();
+    final durationRaw = data['profile_audio_duration_seconds'];
 
     return UserProfile(
       id: id,
-      name: (name == null || name.isEmpty) ? fallbackName : name,
-      nickname: (nickname == null || nickname.isEmpty)
-          ? fallbackName
-          : nickname,
-      email: email,
+      name: resolvedName,
+      nickname: resolvedNickname,
+      email: data['email']?.toString() ?? '',
       isGuest: data['is_guest'] == true,
-      preferredLanguageCode:
-          data['preferred_language']?.toString() ?? 'en',
-      profileBio: (profileBio == null || profileBio.isEmpty) ? null : profileBio,
-      profilePhotoUrl: (profilePhotoUrl == null || profilePhotoUrl.isEmpty)
-          ? null
-          : profilePhotoUrl,
-      profileAudioUrl: (profileAudioUrl == null || profileAudioUrl.isEmpty)
-          ? null
-          : profileAudioUrl,
-      profileAudioDurationSeconds: profileAudioDuration,
+      preferredLanguageCode: data['preferred_language']?.toString() ?? 'en',
+      profileBio: (bio == null || bio.isEmpty) ? null : bio,
+      profilePhotoUrl: (photo == null || photo.isEmpty) ? null : photo,
+      profileAudioUrl: (audio == null || audio.isEmpty) ? null : audio,
+      profileAudioDurationSeconds: durationRaw is num
+          ? durationRaw.toDouble()
+          : double.tryParse(durationRaw?.toString() ?? ''),
       e2eePublicKey: data['e2ee_public_key']?.toString(),
       twoFactorEnabled: data['two_factor_enabled'] == true,
       twoFactorChannel: data['two_factor_channel']?.toString(),
       twoFactorDestination: data['two_factor_destination']?.toString(),
       isPecCertified: data['pec_certified'] == true,
-    );
-  }
-
-  static Future<UserProfile> updateProfile({
-    required String userId,
-    required String nickname,
-    required String preferredLanguageCode,
-    String? profileBio,
-    String? profilePhotoUrl,
-    String? profileAudioUrl,
-    double? profileAudioDurationSeconds,
-  }) async {
-    final parsedBase = Uri.parse('$baseUrl?route=settings');
-    final uri = parsedBase.replace(
-      queryParameters: {
-        ...parsedBase.queryParameters,
-        'user_id': userId,
-      },
-    );
-    final body = jsonEncode({
-      'nickname': nickname,
-      'preferred_language': preferredLanguageCode,
-      'profile_bio': profileBio ?? '',
-      'profile_photo_url': profilePhotoUrl ?? '',
-      'profile_audio_url': profileAudioUrl ?? '',
-      'profile_audio_duration_seconds': profileAudioDurationSeconds,
-    });
-
-    final response = await _client.post(
-      uri,
-      headers: AppRequestSigner.buildSignedHeaders(
-        method: 'POST',
-        uri: uri,
-        body: body,
-        headers: const {
-          'Content-Type': 'application/json',
-          'ngrok-skip-browser-warning': 'true',
-          'User-Agent': 'QuiceApp/1.0.0',
-        },
-      ),
-      body: body,
-    );
-
-    if (response.statusCode >= 400) {
-      throw Exception('Errore salvataggio profilo (${response.statusCode}).');
-    }
-    final payload = jsonDecode(response.body);
-    if (payload['success'] != true) {
-      throw Exception(payload['error'] ?? 'Impossibile aggiornare le impostazioni.');
-    }
-    
-    return UserProfile(
-      id: userId,
-      name: nickname,
-      nickname: nickname,
-      email: '',
-      preferredLanguageCode: preferredLanguageCode,
-      profileBio: (profileBio == null || profileBio.isEmpty) ? null : profileBio,
-      profilePhotoUrl: (profilePhotoUrl == null || profilePhotoUrl.isEmpty) ? null : profilePhotoUrl,
-      profileAudioUrl: (profileAudioUrl == null || profileAudioUrl.isEmpty) ? null : profileAudioUrl,
-      profileAudioDurationSeconds: profileAudioDurationSeconds,
-    );
-  }
-
-  static Future<UserProfile> fetchUserProfile(String targetUserId) async {
-    final parsedBase = Uri.parse('$baseUrl?route=settings');
-    final uri = parsedBase.replace(
-      queryParameters: {
-        ...parsedBase.queryParameters,
-        'user_id': targetUserId,
-      },
-    );
-
-    final response = await _client.get(
-      uri,
-      headers: AppRequestSigner.buildSignedHeaders(
-        method: 'GET',
-        uri: uri,
-        body: '',
-        headers: const {
-          'ngrok-skip-browser-warning': 'true',
-          'User-Agent': 'QuiceApp/1.0.0',
-        },
-      ),
-    );
-
-    if (response.statusCode >= 400) {
-      throw Exception('Impossibile caricare il profilo (${response.statusCode}).');
-    }
-
-    final payload = jsonDecode(response.body);
-    if (payload['success'] != true) {
-      throw Exception(payload['error'] ?? 'Errore nel recupero dati profilo.');
-    }
-
-    final data = payload['data'] as Map<String, dynamic>;
-    final nickname = data['nickname']?.toString() ?? 'Utente $targetUserId';
-    final profileBio = data['profile_bio']?.toString();
-    final profilePhotoUrl = data['profile_photo_url']?.toString();
-    final profileAudioUrl = data['profile_audio_url']?.toString();
-    final profileAudioDurationRaw = data['profile_audio_duration_seconds'];
-    final profileAudioDuration = profileAudioDurationRaw is num
-        ? profileAudioDurationRaw.toDouble()
-        : double.tryParse(profileAudioDurationRaw?.toString() ?? '');
-
-    return UserProfile(
-      id: targetUserId,
-      name: nickname,
-      nickname: nickname,
-      email: '',
-      preferredLanguageCode: data['preferred_language']?.toString() ?? 'en',
-      profileBio: (profileBio == null || profileBio.isEmpty) ? null : profileBio,
-      profilePhotoUrl: (profilePhotoUrl == null || profilePhotoUrl.isEmpty) ? null : profilePhotoUrl,
-      profileAudioUrl: (profileAudioUrl == null || profileAudioUrl.isEmpty) ? null : profileAudioUrl,
-      profileAudioDurationSeconds: profileAudioDuration,
     );
   }
 }

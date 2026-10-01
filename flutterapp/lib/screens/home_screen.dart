@@ -22,9 +22,9 @@ import 'profile_screen.dart';
 import '../widgets/rich_color_board.dart';
 import 'onboarding_wizard.dart';
 import '../widgets/user_profile_dialog.dart';
-import '../widgets/contact_preview_bubble.dart';
 import 'mobile_chat_screen.dart';
 import 'mobile_settings_screen.dart';
+import 'privacy_settings_screen.dart';
 
 class SelectedFile {
   final String path;
@@ -1249,6 +1249,7 @@ class _HomeScreenState extends State<HomeScreen> {
         text: messageText,
         chatId: chat.id,
         fileAttachmentId: attachmentId,
+        isGroup: chat.isGroup,
       );
 
       // if websocket connected for this room, send through it as well for low-latency
@@ -1674,11 +1675,15 @@ class _HomeScreenState extends State<HomeScreen> {
             child: ClipRect(
               child: BackdropFilter(
                 filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-                child: Column(
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 20, 16, 12),
-                      child: Row(
+                // Il fondo traslucido di questo pannello coprirebbe l'effetto
+                // di pressione delle voci: `_ListSurface` inserisce il
+                // `Material` che serve alle `ListTile` per dipingerlo.
+                child: _ListSurface(
+                  child: Column(
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 20, 16, 12),
+                        child: Row(
                         children: [
                           if (_showArchivedOnly)
                             IconButton(
@@ -1839,6 +1844,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                   ],
                 ),
+              ),
               ),
             ),
           ),
@@ -2625,6 +2631,23 @@ class SettingsPanel extends StatelessWidget {
           _GlassCard(
             padding: EdgeInsets.zero,
             child: ListTile(
+              leading: const Icon(Icons.privacy_tip_rounded),
+              title: const Text('Privacy e dati'),
+              subtitle: const Text(
+                'Esporta i tuoi dati, gestisci i consensi, '
+                'limita il trattamento o elimina l\'account',
+              ),
+              trailing: const Icon(Icons.chevron_right_rounded),
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => const PrivacySettingsScreen(),
+                ),
+              ),
+            ),
+          ),
+          _GlassCard(
+            padding: EdgeInsets.zero,
+            child: ListTile(
               leading: const Icon(Icons.person_rounded),
               title: const Text('Modifica profilo'),
               subtitle: const Text('Foto, bio, audio bio'),
@@ -2865,11 +2888,22 @@ class NewChatPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(24),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    // Il pulsante di conferma sta in un'area fissa in basso, non in coda al
+    // contenuto scorrevole.
+    //
+    // Prima era l'ultimo elemento di una colonna lunga: con i due selettori di
+    // colore e l'anteprima, l'azione primaria finiva a oltre mille pixel dal
+    // bordo superiore, quindi su un telefono l'utente doveva scorrere tutta la
+    // pagina per trovare "Crea chat" — o peggio, non lo vedeva affatto.
+    return Column(
+      children: [
+        Expanded(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(24, 24, 24, 8),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
           const Text(
             'Nuova chat',
             style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold),
@@ -2889,10 +2923,13 @@ class NewChatPanel extends StatelessWidget {
             keyboardType: TextInputType.phone,
             inputFormatters: [
               FilteringTextInputFormatter.digitsOnly,
-              LengthLimitingTextInputFormatter(15),
+              // Il limite segue l'identificativo del server: esattamente 10
+              // cifre. Accettarne di più avrebbe permesso di avviare una chat
+              // che il backend avrebbe poi rifiutato.
+              LengthLimitingTextInputFormatter(10),
             ],
             decoration: const InputDecoration(
-              labelText: 'Numero di telefono (8-15 cifre)',
+              labelText: 'Numero di telefono (10 cifre)',
               prefixIcon: Icon(Icons.phone_rounded),
               hintText: '3391234567',
             ),
@@ -2953,8 +2990,25 @@ class NewChatPanel extends StatelessWidget {
               ],
             ),
           ),
-          const SizedBox(height: 16),
-          SizedBox(
+          const SizedBox(height: 8),
+        ],
+              ),
+            ),
+          ),
+        // Barra d'azione fissa: l'azione primaria resta raggiungibile a
+        // qualunque dimensione di schermo, senza dover scorrere tutta la
+        // pagina.
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.fromLTRB(24, 12, 24, 20),
+          decoration: BoxDecoration(
+            border: Border(
+              top: BorderSide(
+                color: Colors.white.withOpacity(isDark ? 0.10 : 0.22),
+              ),
+            ),
+          ),
+          child: SizedBox(
             width: double.infinity,
             child: ElevatedButton.icon(
               onPressed: isCreating ? null : onCreatePressed,
@@ -2965,11 +3019,11 @@ class NewChatPanel extends StatelessWidget {
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
                   : const Icon(Icons.save),
-              label: Text(isCreating ? 'Creazione...' : 'Crea chat'),
+              label: Text(isCreating ? 'Creazione in corso...' : 'Crea chat'),
             ),
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 }
@@ -3093,16 +3147,46 @@ class _GlassCard extends StatelessWidget {
           borderRadius: outerRadius,
           child: BackdropFilter(
             filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
-            child: Container(
+            child: ColoredBox(
               color: Colors.white.withOpacity(isDark ? 0.06 : 0.16),
-              child: Padding(
-                padding: padding ?? const EdgeInsets.all(20),
-                child: child,
+              // Vedi `_ListSurface` nella parte sinistra: il `Material`
+              // trasparente serve a dare ai `ListTile` una superficie su cui
+              // dipingere l'effetto di pressione. Il gradiente qui sopra coprirebbe
+              // quell'effetto, rendendolo invisibile.
+              child: _ListSurface(
+                child: Padding(
+                  padding: padding ?? const EdgeInsets.all(20),
+                  child: child,
+                ),
               ),
             ),
           ),
         ),
       ),
+    );
+  }
+}
+
+/// Superficie trasparente che fornisce un `Material` ai `ListTile` discendenti.
+///
+/// Un `ListTile` dipinge il proprio effetto di pressione sul `Material` piu'
+/// vicino. Quando e' racchiuso in un `Container` decorato — come i pannelli con
+/// sfondo traslucido di questa app — quel `Material` si trova *al di sopra* del
+/// contenitore, quindi l'effetto viene dipinto sotto lo sfondo e non si vede.
+/// Il framework segnala l'incoerenza durante i test.
+///
+/// Questo widget non disegna nulla: si limita a creare il `Material` mancante
+/// nel punto giusto della gerarchia.
+class _ListSurface extends StatelessWidget {
+  const _ListSurface({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      type: MaterialType.transparency,
+      child: child,
     );
   }
 }

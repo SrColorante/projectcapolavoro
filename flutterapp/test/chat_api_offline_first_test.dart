@@ -8,6 +8,8 @@ import 'package:flutterapp/api/chat_api.dart';
 import 'package:flutterapp/services/offline_message_store.dart';
 import 'package:flutterapp/services/p2p_sync_service.dart';
 
+import 'support/fake_secure_store.dart';
+
 void main() {
   group('ChatApi offline-first', () {
     late Directory tempDir;
@@ -32,6 +34,7 @@ void main() {
       final api = ChatApi(
         client: offlineClient,
         baseUrl: 'https://example.test/webService',
+        sessionStore: fakeSessionStore(),
       );
 
       await api.sendMessage(
@@ -55,6 +58,7 @@ void main() {
       final offlineApi = ChatApi(
         client: offlineClient,
         baseUrl: 'https://example.test/webService',
+        sessionStore: fakeSessionStore(),
       );
 
       await offlineApi.sendMessage(
@@ -70,6 +74,7 @@ void main() {
       final onlineApi = ChatApi(
         client: onlineClient,
         baseUrl: 'https://example.test/webService',
+        sessionStore: fakeSessionStore(),
       );
 
       await onlineApi.syncPendingMessages(userId: '1234567890');

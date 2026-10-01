@@ -109,13 +109,20 @@ class _UserProfileDetailContentState extends State<UserProfileDetailContent> {
 
   Future<void> _loadProfile() async {
     try {
-      final loadedProfile = await AuthApi.fetchUserProfile(widget.userId);
-      if (mounted) {
+      // Il profilo di un altro utente e' pubblico ma ridotto ai dati minimi.
+      final profiles = await AuthApi.instance.fetchPublicProfiles([widget.userId]);
+      if (!mounted) return;
+      if (profiles.isEmpty) {
         setState(() {
-          _profile = loadedProfile;
+          _errorMessage = 'Utente non trovato';
           _isLoading = false;
         });
+        return;
       }
+      setState(() {
+        _profile = profiles.first;
+        _isLoading = false;
+      });
     } catch (e) {
       if (mounted) {
         setState(() {

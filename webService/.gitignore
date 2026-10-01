@@ -1,0 +1,28 @@
+# =====================================================================
+#  Quice — backend PHP
+# =====================================================================
+
+# Segreti e configurazione locale: MAI tracciare questo file.
+.env
+
+# File caricati dagli utenti.
+#
+# Sono dati personali (foto, audio, documenti): non devono mai entrare nel
+# controllo di versione. Prima questa cartella conteneva undici file reali
+# committati in un repository pubblico, recuperabili da qualsiasi commit.
+uploads/*
+!uploads/.htaccess
+!uploads/.gitkeep
+
+# Dipendenze Composer del server WebSocket opzionale.
+vendor/
+
+# Log locali.
+*.log
+audit.log
+
+# Esportazioni dei dati generate dagli utenti. Contengono l'intero
+# profilo e tutti i messaggi: aprirle accidentalmente equivarrebbe a
+# pubblicarli.
+exports/
+*.export.json

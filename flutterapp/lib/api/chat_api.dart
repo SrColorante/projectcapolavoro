@@ -6,45 +6,33 @@ import 'package:http/http.dart' as http;
 
 import '../models/chat_thread.dart';
 import '../services/app_preferences.dart';
-import '../services/app_request_signer.dart';
 import '../services/message_translation_service.dart';
-import 'auth_api.dart';
 import '../services/p2p_sync_service.dart';
+import 'api_client.dart';
+import 'session_store.dart';
 
 class ChatApi {
   ChatApi({
     http.Client? client,
     String? baseUrl,
     MessageTranslator? translationService,
-  })  : _client = client ?? http.Client(),
-        _baseUrl = baseUrl ?? AuthApi.baseUrl,
+    SessionStore? sessionStore,
+  })  : _api = ApiClient(
+          client: client,
+          baseUrl: baseUrl,
+          store: sessionStore,
+        ),
         _translationService =
             translationService ?? MessageTranslationService.instance;
 
-  static const _requestTimeout = Duration(seconds: 10);
-
-  final http.Client _client;
-  final String _baseUrl;
+  final ApiClient _api;
   final P2PSyncService _p2pSyncService = P2PSyncService.instance;
   final MessageTranslator _translationService;
 
   Future<List<ChatThread>> fetchChats({required String userId}) async {
     await _initializeOfflineFirst(userId);
-    final uri = Uri.parse('$_baseUrl/chats').replace(
-      queryParameters: {'user_id': userId},
-    );
     try {
-      final response = await _client
-          .get(
-            uri,
-            headers: AppRequestSigner.buildSignedHeaders(
-              method: 'GET',
-              uri: uri,
-              body: '',
-            ),
-          )
-          .timeout(_requestTimeout);
-      final payload = _decodePayload(response);
+      final payload = await _api.get('chats');
       final data = payload['data'] as List<dynamic>? ?? <dynamic>[];
 
       final chats = data.map((item) {
@@ -124,21 +112,8 @@ class ChatApi {
     required String chatId,
   }) async {
     await _initializeOfflineFirst(userId);
-    final uri = Uri.parse('$_baseUrl/chat').replace(
-      queryParameters: {'user_id': userId, 'chat_id': chatId},
-    );
     try {
-      final response = await _client
-          .get(
-            uri,
-            headers: AppRequestSigner.buildSignedHeaders(
-              method: 'GET',
-              uri: uri,
-              body: '',
-            ),
-          )
-          .timeout(_requestTimeout);
-      final payload = _decodePayload(response);
+      final payload = await _api.get('chat', query: <String, String>{'chat_id': chatId});
       final data = payload['data'] as List<dynamic>? ?? <dynamic>[];
       final typingData = payload['typing'] as List<dynamic>? ?? <dynamic>[];
       
@@ -211,26 +186,14 @@ class ChatApi {
     required String status,
   }) async {
     await _initializeOfflineFirst(userId);
-    final uri = Uri.parse('$_baseUrl/chat').replace(
-      queryParameters: {'user_id': userId},
-    );
     try {
-      final body = jsonEncode({
+      await _api.post('chat', body: {
         'chat_id': chatId,
         'typing_status': status,
-      });
-      await _client.post(
-        uri,
-        headers: AppRequestSigner.buildSignedHeaders(
-          method: 'POST',
-          uri: uri,
-          body: body,
-          headers: const {'Content-Type': 'application/json'},
-        ),
-        body: body,
-      ).timeout(const Duration(seconds: 4));
+      }, timeout: const Duration(seconds: 4));
     } catch (_) {
-      // Ignora silenziosamente
+      // La presenza e' un segnale accessorio: un errore qui non deve
+      // interrompere l'invio del messaggio.
     }
   }
 
@@ -239,31 +202,9 @@ class ChatApi {
     required String targetUserId,
   }) async {
     await _initializeOfflineFirst(userId);
-    final uri = Uri.parse('$_baseUrl/chats').replace(
-      queryParameters: {'user_id': userId},
-    );
     try {
-      final body = jsonEncode({'target_user_id': targetUserId});
-      final response = await _client
-          .post(
-            uri,
-            headers: AppRequestSigner.buildSignedHeaders(
-              method: 'POST',
-              uri: uri,
-              body: body,
-              headers: const {'Content-Type': 'application/json'},
-            ),
-            body: body,
-          )
-          .timeout(_requestTimeout);
-      if (response.statusCode >= 400) {
-        throw Exception('Errore server (${response.statusCode}).');
-      }
-      final payload = jsonDecode(response.body);
-      if (payload is! Map<String, dynamic>) {
-        throw Exception('Risposta non valida dal server.');
-      }
-      final chatId = payload['IDchat'] ?? payload['data']?['IDchat'];
+      final payload = await _api.post('chats', body: {'target_user_id': targetUserId});
+      final chatId = payload['data']?['IDchat'] ?? payload['IDchat'];
       if (chatId == null) {
         throw Exception(payload['error'] ?? 'Risposta chat non valida.');
       }
@@ -294,34 +235,12 @@ class ChatApi {
     required List<String> memberIds,
   }) async {
     await _initializeOfflineFirst(userId);
-    final uri = Uri.parse('$_baseUrl/chats').replace(
-      queryParameters: {'user_id': userId},
-    );
-    final body = jsonEncode({
+    final payload = await _api.post('chats', body: {
       'is_group': true,
       'name': name,
       'member_ids': memberIds,
     });
-    final response = await _client
-        .post(
-          uri,
-          headers: AppRequestSigner.buildSignedHeaders(
-            method: 'POST',
-            uri: uri,
-            body: body,
-            headers: const {'Content-Type': 'application/json'},
-          ),
-          body: body,
-        )
-        .timeout(_requestTimeout);
-    if (response.statusCode >= 400) {
-      throw Exception('Errore server (${response.statusCode}).');
-    }
-    final payload = jsonDecode(response.body);
-    if (payload['success'] == false) {
-      throw Exception(payload['message'] ?? payload['error'] ?? 'Impossibile creare il gruppo');
-    }
-    return (payload['IDchat'] ?? payload['data']?['IDchat']).toString();
+    return (payload['data']?['IDchat'] ?? payload['IDchat']).toString();
   }
 
   Future<void> sendMessage({
@@ -330,10 +249,16 @@ class ChatApi {
     required String text,
     String? chatId,
     String? fileAttachmentId,
+    bool isGroup = false,
   }) async {
     await _initializeOfflineFirst(userId);
     final effectiveChatId = chatId ?? receiverId;
-    if (chatId == null || !chatId.startsWith('group_')) {
+    // Il tipo di conversazione e' noto dal chiamante. Prima veniva dedotto da
+    // `chatId.startsWith('group_')`, una condizione che non poteva mai essere
+    // vera: il server genera identificatori di gruppo puramente numerici, come
+    // quelli delle chat private. La condizione risultava sempre falsa e il
+    // ramo di gruppo era codice mai eseguito.
+    if (!isGroup) {
       await _p2pSyncService.rememberChat(
         ownerId: userId,
         chatId: effectiveChatId,
@@ -345,9 +270,6 @@ class ChatApi {
       sourceLanguageCode: AppPreferences.instance.preferredLanguageCode,
     );
 
-    final uri = Uri.parse('$_baseUrl/chat').replace(
-      queryParameters: {'user_id': userId},
-    );
     try {
       final Map<String, dynamic> requestBody = {
         'textmessage': translatedText,
@@ -360,20 +282,7 @@ class ChatApi {
       if (fileAttachmentId != null) {
         requestBody['file_attachment_id'] = int.tryParse(fileAttachmentId);
       }
-      final body = jsonEncode(requestBody);
-      final response = await _client
-          .post(
-            uri,
-            headers: AppRequestSigner.buildSignedHeaders(
-              method: 'POST',
-              uri: uri,
-              body: body,
-              headers: const {'Content-Type': 'application/json'},
-            ),
-            body: body,
-          )
-          .timeout(_requestTimeout);
-      _decodePayload(response);
+      await _api.post('chat', body: requestBody);
       await _p2pSyncService.syncPendingMessages();
     } catch (error) {
       if (!_isConnectivityError(error)) {
@@ -407,54 +316,19 @@ class ChatApi {
       throw Exception('File locale non trovato.');
     }
 
-    final uri = Uri.parse('$_baseUrl/files').replace(
-      queryParameters: {'user_id': userId},
-    );
-
     try {
-      final request = http.MultipartRequest('POST', uri);
-
-      // Multipart upload uses empty body string for signature because body is not read from php://input
-      final signedHeaders = AppRequestSigner.buildSignedHeaders(
-        method: 'POST',
-        uri: uri,
-        body: '',
-      );
-
-      request.headers.addAll(signedHeaders);
-
+      final fields = <String, String>{};
       if (adminPassword != null && adminPassword.isNotEmpty) {
-        request.fields['admin_password'] = adminPassword;
+        fields['admin_password'] = adminPassword;
       }
       if (overrideLimit) {
-        request.fields['override_limit'] = 'true';
+        fields['override_limit'] = 'true';
       }
 
-      final stream = http.ByteStream(file.openRead());
-      final length = await file.length();
-
-      final filename = file.path.split('/').last.split('\\').last;
-      final multipartFile = http.MultipartFile(
-        'file',
-        stream,
-        length,
-        filename: filename,
-      );
-      request.files.add(multipartFile);
-
-      final responseStream = await request.send().timeout(const Duration(seconds: 30));
-      final response = await http.Response.fromStream(responseStream);
-
-      if (response.statusCode >= 400) {
-        final decoded = jsonDecode(response.body);
-        throw Exception(decoded['error'] ?? 'Errore caricamento (${response.statusCode})');
-      }
-
-      final payload = jsonDecode(response.body);
-      if (payload['success'] == false) {
-        throw Exception(payload['message'] ?? payload['error'] ?? 'Errore caricamento.');
-      }
-
+      // La firma copre il corpo vuoto: in una richiesta multipart il
+      // contenuto non e' leggibile da php://input, quindi firmarlo come se
+      // fosse il testo del file produrrebbe ogni volta una firma diversa.
+      final payload = await _api.uploadFile(filePath: filePath, fields: fields);
       return Map<String, dynamic>.from(payload['data'] as Map);
     } catch (error) {
       if (_isConnectivityError(error)) {
@@ -497,25 +371,17 @@ class ChatApi {
     return localizedMessages;
   }
 
-  Map<String, dynamic> _decodePayload(http.Response response) {
-    if (response.statusCode >= 400) {
-      throw Exception('Errore server (${response.statusCode}).');
-    }
-    final payload = jsonDecode(response.body);
-    if (payload is Map<String, dynamic>) {
-      if (payload['success'] == false) {
-        throw Exception(payload['message'] ?? payload['error'] ?? 'Errore API.');
-      }
-      return payload;
-    }
-    throw Exception('Risposta non valida dal server.');
-  }
-
+  /// Avvia la modalità offline-first.
+  ///
+  /// La sincronizzazione peer-to-peer sulla rete locale richiede il consenso
+  /// esplicito dell'utente: senza, l'app continua a funzionare ma resta
+  /// collegata solo al server.
   Future<void> _initializeOfflineFirst(String userId) async {
     await _p2pSyncService.initialize(
       userId: userId,
-      baseUrl: _baseUrl,
-      client: _client,
+      baseUrl: _api.baseUrl,
+      client: _api.client,
+      peerTransferAllowed: AppPreferences.instance.lanPeerTransferConsented,
     );
   }
 

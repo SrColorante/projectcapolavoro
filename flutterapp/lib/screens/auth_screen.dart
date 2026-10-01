@@ -53,20 +53,22 @@ class _AuthScreenState extends State<AuthScreen> with SingleTickerProviderStateM
     try {
       final phone = phoneController.text.trim().replaceAll(' ', '');
       final password = passwordController.text.trim();
-      final profile = isLogin
-          ? await AuthApi.login(
-              phone: phone,
-              password: password,
-            )
-          : await AuthApi.register(
+      final session = isLogin
+          ? await AuthApi.instance.login(phone: phone, password: password)
+          : await AuthApi.instance.register(
               name: nameController.text.trim(),
               phone: phone,
-              email: emailController.text.trim().isEmpty ? null : emailController.text.trim(),
+              email: emailController.text.trim().isEmpty
+                  ? null
+                  : emailController.text.trim(),
               password: password,
               preferredLanguageCode: _preferredLanguageCode,
             );
 
-      await AppPreferences.instance.saveUserSession(phone, password, profile);
+      // Nessuna password viene conservata: la sessione e' gia' stata
+      // stabilita dal server e vive nell'archivio sicuro del dispositivo.
+      await AppPreferences.instance.saveUserSession(phone, session.profile);
+      final profile = session.profile;
 
       if (!mounted) return;
       Navigator.of(context).pushReplacement(

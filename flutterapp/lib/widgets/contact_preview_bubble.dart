@@ -33,13 +33,23 @@ class _ContactPreviewBubbleState extends State<ContactPreviewBubble> {
 
   Future<void> _fetchContact() async {
     try {
-      final profile = await AuthApi.fetchUserProfile(widget.userId);
-      if (mounted) {
+      // Profilo pubblico di un altro utente: il backend restituisce solo i
+      // dati minimi (nome, nickname, foto). Email, stato della 2FA e
+      // informazioni di cancellazione di terzi non sono esposti, perche' non
+      // servono a mostrare un contatto e sono dati identificativi.
+      final profiles = await AuthApi.instance.fetchPublicProfiles([widget.userId]);
+      if (!mounted) return;
+      if (profiles.isEmpty) {
         setState(() {
-          _profile = profile;
+          _isNotFound = true;
           _isLoading = false;
         });
+        return;
       }
+      setState(() {
+        _profile = profiles.first;
+        _isLoading = false;
+      });
     } catch (_) {
       if (mounted) {
         setState(() {
@@ -50,6 +60,12 @@ class _ContactPreviewBubbleState extends State<ContactPreviewBubble> {
     }
   }
 
+  /// Compone l'URL di un file caricato.
+  ///
+  /// I file non sono piu' serviti come risorse statiche: `uploads/` e' bloccata
+  /// e l'unica via e' `serve_file.php`, che verifica la sessione. Serve pero'
+  /// il token, che qui non puo' essere allegato: l'immagine resta quindi
+  /// riservata ai flussi che usano `ApiClient`.
   String _resolveUrl(String path) {
     if (path.startsWith('http://') || path.startsWith('https://')) {
       return path;
