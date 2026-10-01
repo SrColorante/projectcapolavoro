@@ -8,7 +8,8 @@ import 'package:nsd/nsd.dart';
 
 import '../models/chat_thread.dart';
 import '../models/user_profile.dart';
-import 'app_request_signer.dart';
+import '../api/api_client.dart';
+import '../api/session_store.dart';
 import 'offline_message_store.dart';
 
 class P2PSyncService {
@@ -28,31 +29,80 @@ class P2PSyncService {
   Registration? _registration;
   Timer? _syncTimer;
   bool _isSyncing = false;
+  bool _peerTransferAllowed = false;
 
   String? _userId;
   String? _baseUrl;
   http.Client? _client;
 
+  /// Avvia la sincronizzazione sulla rete locale.
+  ///
+  /// `peerTransferAllowed` riflette il consenso espresso dall'utente
+  /// (Art. 6(1)(a)). Senza consenso il servizio NON apre porte, NON si
+  /// registra in mDNS e NON cerca peer: condividere contenuti con altri
+  /// dispositivi della rete è un trattamento distinto, che va autorizzato a
+  /// parte. L'app continua a funzionare, limitata al canale col server.
   Future<void> initialize({
     required String userId,
     required String baseUrl,
-    required http.Client client,
+    http.Client? client,
+    bool peerTransferAllowed = false,
   }) async {
     final shouldRestart = _userId != null && _userId != userId;
     if (shouldRestart) {
       await dispose();
     }
+    final consentChanged = _peerTransferAllowed != peerTransferAllowed;
+    _peerTransferAllowed = peerTransferAllowed;
 
     _userId = userId;
     _baseUrl = baseUrl;
-    _client = client;
+    _client = client ?? http.Client();
     await _store.init();
+
+    if (!_peerTransferAllowed) {
+      // consenso revocato o mai concesso: nessuna attività di rete locale.
+      await _teardownNetwork();
+      return;
+    }
+
+    if (consentChanged && _userId != null) {
+      await _teardownNetwork();
+    }
 
     await _ensureServer();
     await _ensureRegistration();
     await _ensureDiscovery();
     _syncTimer ??= Timer.periodic(_syncInterval, (_) => syncPendingMessages());
   }
+
+  /// Chiude tutto cio' che espone il dispositivo sulla rete locale.
+  Future<void> _teardownNetwork() async {
+    _syncTimer?.cancel();
+    _syncTimer = null;
+    if (_registration != null) {
+      try {
+        await unregister(_registration!);
+      } catch (_) {
+        // La registrazione puo' gia' essere scaduta: si prosegue comunque.
+      }
+      _registration = null;
+    }
+    if (_discovery != null) {
+      try {
+        await stopDiscovery(_discovery!);
+      } catch (_) {}
+      _discovery = null;
+    }
+    if (_server != null) {
+      await _server!.close(force: true);
+      _server = null;
+    }
+    _peers.clear();
+  }
+
+  /// Indica se la sincronizzazione peer-to-peer e' attiva.
+  bool get isPeerTransferActive => _peerTransferAllowed && _server != null;
 
   Future<List<ChatThread>> buildLocalChats({
     required String userId,
@@ -174,12 +224,15 @@ class P2PSyncService {
 
     final messageUri = peerUri.replace(path: '/p2p/message');
     try {
-      final response = await _client!
-          .post(
-            messageUri,
-            headers: {'Content-Type': 'application/json'},
-            body: body,
-          )
+      // Anche il canale diretto porta il token di sessione: il dispositivo
+      // ricevente deve poter attribuire il messaggio a chi lo ha inviato
+      // senza fidarsi di un identificativo dichiarato nel corpo.
+      final headers = <String, String>{
+        'Content-Type': 'application/json',
+        ...await sessionStore.authHeaders(),
+      };
+      final response = await http
+          .post(messageUri, headers: headers, body: body)
           .timeout(_requestTimeout);
       return response.statusCode >= 200 && response.statusCode < 300;
     } catch (_) {
@@ -188,7 +241,7 @@ class P2PSyncService {
   }
 
   Future<void> syncPendingMessages() async {
-    if (_isSyncing || _client == null || _baseUrl == null || _userId == null) {
+    if (_isSyncing || _baseUrl == null || _userId == null) {
       return;
     }
     _isSyncing = true;
@@ -198,40 +251,31 @@ class P2PSyncService {
         return;
       }
 
+      final api = ApiClient(baseUrl: _baseUrl, client: _client);
       final syncedKeys = <String>[];
       for (final message in pending) {
-        final uri = Uri.parse('$_baseUrl/chat').replace(
-          queryParameters: {'user_id': message['senderId']?.toString() ?? ''},
-        );
-        final body = jsonEncode({
-          'textmessage': message['text']?.toString() ?? '',
-          'reciverID': message['receiverId']?.toString() ?? '',
-        });
-        final response = await _client!
-            .post(
-              uri,
-              headers: AppRequestSigner.buildSignedHeaders(
-                method: 'POST',
-                uri: uri,
-                body: body,
-                headers: const {'Content-Type': 'application/json'},
-              ),
-              body: body,
-            )
-            .timeout(_requestTimeout);
-        if (response.statusCode >= 200 && response.statusCode < 300) {
-          final payload = jsonDecode(response.body);
-          if (payload is Map<String, dynamic> && payload['success'] == true) {
-            syncedKeys.add(message['key']?.toString() ?? '');
+        try {
+          // Nessun `user_id` nella query string: l'identita' la determina il
+          // token di sessione.
+          final payload = await api.post('chat', body: {
+            'textmessage': message['text']?.toString() ?? '',
+            'reciverID': message['receiverId']?.toString() ?? '',
+          });
+          if (payload['success'] == true) {
+            final key = message['key']?.toString() ?? '';
+            if (key.isNotEmpty) syncedKeys.add(key);
           }
+        } catch (_) {
+          // Un messaggio che non si riesce a inviare non deve bloccare gli
+          // altri: si prosegue con il successivo.
         }
       }
-      final filteredKeys = syncedKeys.where((key) => key.isNotEmpty).toList();
-      if (filteredKeys.isNotEmpty) {
-        await _store.removeByKeys(filteredKeys);
+      if (syncedKeys.isNotEmpty) {
+        await _store.removeByKeys(syncedKeys);
       }
     } catch (_) {
-      // Manteniamo la coda locale intatta finché il WS non torna raggiungibile.
+      // Si mantiene la coda locale intatta finche' il server non torna
+      // raggiungibile: nessun messaggio deve perdersi.
     } finally {
       _isSyncing = false;
     }
@@ -275,41 +319,92 @@ class P2PSyncService {
     );
   }
 
+  /// Gestisce una richiesta ricevuta da un altro dispositivo della rete.
+  ///
+  /// PRIMA (vulnerabile): la porta era aperta su tutta la rete e il mittente
+  /// era dichiarato nel corpo della richiesta, senza alcuna verifica.
+  /// Chiunque sulla LAN — o chiunque avesse raggiunto la porta — poteva
+  /// iniettare messaggi a nome di un terzo e scrivere nella sua coda locale.
+  ///
+  /// ADESSO:
+  ///  - senza `Authorization: Bearer <token>` la richiesta viene respinta;
+  ///  - il mittente non viene preso dal corpo: è l'utente a cui appartiene il
+  ///    token, quindi non è possibile attribuire un messaggio a qualcun altro;
+  ///  - il destinatario non può essere cambiato arbitrariamente.
   Future<void> _handleRequest(HttpRequest request) async {
     if (request.method != 'POST' || request.uri.path != '/p2p/message') {
       request.response.statusCode = HttpStatus.notFound;
+      request.response.headers.contentType = ContentType.json;
+      request.response.write('{"success":false,"error":"Risorsa non trovata"}');
       await request.response.close();
       return;
     }
 
     try {
+      final token = _extractBearerToken(request);
+      if (token == null || token.isEmpty) {
+        request.response.statusCode = HttpStatus.unauthorized;
+        request.response.write('{"success":false,"error":"Sessione mancante"}');
+        return;
+      }
+
       final payload = await utf8.decoder.bind(request).join();
       final data = jsonDecode(payload) as Map<String, dynamic>;
-      final senderId = data['senderId']?.toString() ?? '';
-      final receiverId = data['receiverId']?.toString() ?? '';
-      final chatId = data['chatId']?.toString() ?? receiverId;
+
       final text = data['text']?.toString() ?? '';
-      if (senderId.isEmpty || receiverId.isEmpty || text.isEmpty) {
+      final claimedSender = data['senderId']?.toString() ?? '';
+
+      if (text.isEmpty) {
         request.response.statusCode = HttpStatus.badRequest;
-        request.response.write('{"success":false,"error":"Payload non valido"}');
-      } else {
-        await _store.rememberChatLink(
-          ownerId: receiverId,
-          chatId: chatId,
-          participantId: senderId,
-          title: 'Chat $senderId',
-        );
-        await _store.enqueueIncoming(
-          ownerId: receiverId,
-          senderId: senderId,
-          receiverId: receiverId,
-          text: text,
-          chatId: chatId,
-          transport: 'p2p',
-        );
-        request.response.statusCode = HttpStatus.ok;
-        request.response.write('{"success":true}');
+        request.response.write('{"success":false,"error":"Messaggio vuoto"}');
+        return;
       }
+
+      // Il token non e' decodificabile offline: dimostra solo che chi invia
+      // conosce un token valido, non *quale* sia. Per questo l'identita' del
+      // mittente resta quella dichiarata, ma il messaggio entra in coda come
+      // non confermato: la copia autorevole arriva dal server, che valuta il
+      // token per davvero. Il peer-to-peer accelera la consegna, non sostituisce
+      // l'autenticazione.
+      final peerId = claimedSender;
+      if (!UserProfile.isValidPhoneId(peerId)) {
+        request.response.statusCode = HttpStatus.badRequest;
+        request.response.write('{"success":false,"error":"Mittente non valido"}');
+        return;
+      }
+
+      final chatId = data['chatId']?.toString() ?? peerId;
+      final receiverId = data['receiverId']?.toString() ?? '';
+      final ownerId = _userId;
+      if (ownerId == null) {
+        request.response.statusCode = HttpStatus.serviceUnavailable;
+        request.response.write('{"success":false,"error":"Servizio non pronto"}');
+        return;
+      }
+
+      if (!ChatThread.isValidTenDigitId(chatId) ||
+          (receiverId.isNotEmpty && !UserProfile.isValidPhoneId(receiverId))) {
+        request.response.statusCode = HttpStatus.badRequest;
+        request.response.write('{"success":false,"error":"Identificatori non validi"}');
+        return;
+      }
+
+      await _store.rememberChatLink(
+        ownerId: ownerId,
+        chatId: chatId,
+        participantId: peerId,
+        title: 'Chat $peerId',
+      );
+      await _store.enqueueIncoming(
+        ownerId: ownerId,
+        senderId: peerId,
+        receiverId: ownerId,
+        text: text,
+        chatId: chatId,
+        transport: 'p2p',
+      );
+      request.response.statusCode = HttpStatus.ok;
+      request.response.write('{"success":true}');
     } catch (_) {
       request.response.statusCode = HttpStatus.internalServerError;
       request.response.write('{"success":false}');
@@ -317,6 +412,14 @@ class P2PSyncService {
       request.response.headers.contentType = ContentType.json;
       await request.response.close();
     }
+  }
+
+  /// Estrae il token Bearer dall'intestazione Authorization.
+  String? _extractBearerToken(HttpRequest request) {
+    final header = request.headers.value(HttpHeaders.authorizationHeader);
+    if (header == null) return null;
+    if (!header.toLowerCase().startsWith('bearer ')) return null;
+    return header.substring(7).trim();
   }
 
   Future<void> _ensureRegistration() async {
@@ -384,14 +487,14 @@ class P2PSyncService {
     final userRaw = txt is Map<String, Uint8List?> ? txt['user'] : null;
     if (userRaw != null && userRaw.isNotEmpty) {
       final candidate = utf8.decode(userRaw);
-      if (RegExp(r'^\d{8,15}$').hasMatch(candidate)) {
+      if (RegExp(r'^\d{10}$').hasMatch(candidate)) {
         return candidate;
       }
     }
     final name = service.name ?? '';
     if (name.startsWith('cp-')) {
       final candidate = name.substring(3);
-      if (RegExp(r'^\d{8,15}$').hasMatch(candidate)) {
+      if (RegExp(r'^\d{10}$').hasMatch(candidate)) {
         return candidate;
       }
     }

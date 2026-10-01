@@ -149,36 +149,61 @@ class _RichColorBoardState extends State<RichColorBoard> with SingleTickerProvid
         mainAxisSize: MainAxisSize.min,
         children: [
           // Elegant Glassy TabBar
-          TabBar(
-            controller: _tabController,
-            indicatorColor: widget.selectedColor,
-            labelColor: isDark ? Colors.white : Colors.black87,
-            unselectedLabelColor: isDark ? Colors.white38 : Colors.black38,
-            indicatorSize: TabBarIndicatorSize.label,
-            dividerColor: Colors.transparent,
-            tabs: const [
-              Tab(
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(Icons.palette_rounded, size: 18),
-                    SizedBox(width: 8),
-                    Text('Palette Curate', style: TextStyle(fontWeight: FontWeight.bold)),
+            // Le etichette delle schede si accorciano sotto una certa larghezza
+            // invece di traboccare. Su uno schermo stretto (telefono in
+            // verticale, pannello laterale aperto) la riga con icona e testo
+            // superava lo spazio disponibile e il layout andava in overflow.
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final isCompact = constraints.maxWidth < 340;
+                return TabBar(
+                  controller: _tabController,
+                  indicatorColor: widget.selectedColor,
+                  labelColor: isDark ? Colors.white : Colors.black87,
+                  unselectedLabelColor: isDark ? Colors.white38 : Colors.black38,
+                  indicatorSize: TabBarIndicatorSize.label,
+                  dividerColor: Colors.transparent,
+                  tabs: [
+                    Tab(
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.palette_rounded, size: 18),
+                          const SizedBox(width: 8),
+                          Flexible(
+                            child: Text(
+                              isCompact ? 'Palette' : 'Palette Curate',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(fontWeight: FontWeight.bold),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Tab(
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.tune_rounded, size: 18),
+                          const SizedBox(width: 8),
+                          Flexible(
+                            child: Text(
+                              isCompact ? 'Personalizza' : 'Personalizza i colori',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(fontWeight: FontWeight.bold),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   ],
-                ),
-              ),
-              Tab(
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(Icons.tune_rounded, size: 18),
-                    SizedBox(width: 8),
-                    Text('Personalizza', style: TextStyle(fontWeight: FontWeight.bold)),
-                  ],
-                ),
-              ),
-            ],
-          ),
+                );
+              },
+            ),
           const SizedBox(height: 8),
           
           AnimatedSize(

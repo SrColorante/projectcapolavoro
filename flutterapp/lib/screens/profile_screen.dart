@@ -202,7 +202,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       }
 
       // 3. Patch settings
-      final updatedProfile = await AuthApi.updateProfile(
+      final updatedProfile = await AuthApi.instance.updateProfile(
         userId: widget.profile.id,
         nickname: _nicknameController.text.trim(),
         preferredLanguageCode: _preferredLanguageCode,

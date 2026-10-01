@@ -1,0 +1,41 @@
+{
+    "name": "quice/webservice",
+    "description": "Quice — backend PHP e server WebSocket opzionale",
+    "type": "project",
+    "license": "MIT",
+    "require": {
+        "php": ">=8.0",
+        "ext-pdo": "*",
+        "ext-json": "*",
+        "ext-fileinfo": "*",
+        "ext-openssl": "*",
+        "cboden/ratchet": "^0.4.4"
+    },
+    "suggest": {
+        "ext-sodium": "Consigliato: cifratura più efficiente per le operazioni future sulla chiave pubblica"
+    },
+    "autoload": {
+        "files": [
+            "lib/config.php",
+            "lib/db.php",
+            "lib/http.php",
+            "lib/logging.php",
+            "lib/auth.php",
+            "lib/consent.php",
+            "lib/privacy.php",
+            "lib/upload.php",
+            "lib/retention.php"
+        ]
+    },
+    "scripts": {
+        "test": [
+            "php tests/run.php",
+            "php tests/smoke_http.php"
+        ],
+        "migrate": "php migrate.php up",
+        "retention": "php migrate.php retention"
+    },
+    "config": {
+        "optimize-autoloader": true
+    }
+}

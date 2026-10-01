@@ -55,6 +55,7 @@ dependencies:
   cached_network_image: ^3.3.0
   shimmer: ^3.0.0
   http_parser: ^4.0.0
+  flutter_secure_storage: ^10.3.4
 
 dev_dependencies:
   flutter_test:
@@ -77,6 +78,11 @@ flutter:
   # included with your application, so that you can use the icons in
   # the material Icons class.
   uses-material-design: true
+
+  # L'informativa privacy è incorporata nell'applicazione (art. 13): deve
+  # essere disponibile anche offline e senza un secondo server.
+  assets:
+    - assets/legal/privacy_policy.txt
 
   # To add assets to your application, add an assets section, like this:
   # assets:

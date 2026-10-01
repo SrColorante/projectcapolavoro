@@ -7,6 +7,8 @@ import 'package:http/testing.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:flutterapp/api/chat_api.dart';
+
+import 'support/fake_secure_store.dart';
 import 'package:flutterapp/services/app_preferences.dart';
 import 'package:flutterapp/services/message_translation_service.dart';
 import 'package:flutterapp/services/offline_message_store.dart';
@@ -67,6 +69,7 @@ void main() {
           return http.Response('{"success":true}', 200);
         }),
         baseUrl: 'https://example.test/webService/index.php',
+        sessionStore: fakeSessionStore(),
         translationService: FakeMessageTranslator(),
       );
 
@@ -89,6 +92,7 @@ void main() {
           );
         }),
         baseUrl: 'https://example.test/webService/index.php',
+        sessionStore: fakeSessionStore(),
         translationService: FakeMessageTranslator(),
       );
 

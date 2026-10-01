@@ -7,6 +7,21 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/user_profile.dart';
 import 'message_translation_service.dart';
 
+/// Preferenze locali dell'applicazione.
+///
+/// NOTA SULLA MEMORIA DELLA PASSWORD
+/// -----------------------------------
+/// La versione precedente salvava la password in chiaro sotto la chiave
+/// `session_password` e la reinviava a ogni avvio a freddo. Su Android
+/// `SharedPreferences` e' un XML leggibile da qualunque app con accesso
+/// all'archivio dell'utente; su Windows e' un file di testo semplice. La
+/// password era quindi recuperabile da un dispositivo bloccato o da un backup
+/// non cifrato — e non serviva a nulla, perche' da quando esiste la sessione
+/// con token l'accesso non richiede piu' la password.
+///
+/// Ora la password non viene memorizzata. Resta solo il token di sessione, che
+/// vive in `flutter_secure_storage`. Qui si conservano solo dati di
+/// impostazione e il profilo, che non sono credenziali.
 class AppPreferences extends ChangeNotifier {
   AppPreferences._();
 
@@ -15,15 +30,18 @@ class AppPreferences extends ChangeNotifier {
   static const int defaultThemeColorValue = 0xFF1E1E1E;
   static const int defaultBackgroundColorValue = 0xFFFFFFFF;
   static const String defaultLanguageCode = 'en';
-  static const _themeColorKey = 'app_theme_color';
-  static const _backgroundColorKey = 'app_background_color';
-  static const _backgroundImagePathKey = 'app_background_image_path';
-  static const _preferredLanguageKey = 'preferred_language_code';
-  static const _sessionPhoneKey = 'session_phone';
-  static const _sessionPasswordKey = 'session_password';
-  static const _sessionIsGuestKey = 'session_is_guest';
-  static const _sessionGuestNameKey = 'session_guest_name';
-  static const _sessionProfileKey = 'session_user_profile';
+
+  static const String _themeColorKey = 'app_theme_color';
+  static const String _backgroundColorKey = 'app_background_color';
+  static const String _backgroundImagePathKey = 'app_background_image_path';
+  static const String _preferredLanguageKey = 'preferred_language_code';
+  static const String _sessionPhoneKey = 'session_phone';
+  static const String _sessionIsGuestKey = 'session_is_guest';
+  static const String _sessionGuestNameKey = 'session_guest_name';
+  static const String _sessionProfileKey = 'session_user_profile';
+  static const String _lanPeerConsentKey = 'consent_lan_peer_transfer';
+  static const String _translationConsentKey = 'consent_translation_ondevice';
+  static const String _voiceBioConsentKey = 'consent_voice_bio';
 
   SharedPreferences? _sharedPreferences;
   bool _isLoaded = false;
@@ -32,16 +50,28 @@ class AppPreferences extends ChangeNotifier {
   String? _backgroundImagePath;
   String _preferredLanguageCode = defaultLanguageCode;
   UserProfile? _currentUserProfile;
+  bool _lanPeerTransferConsented = false;
+  bool _translationConsented = false;
+  bool _voiceBioConsented = false;
 
   UserProfile? get currentUserProfile => _currentUserProfile;
 
-  Future<void> saveUserSession(String phone, String password, UserProfile profile) async {
+  /// Consenso alla condivisione diretta con i dispositivi vicini (Art. 6(1)(a)).
+  /// Senza questo consenso la sincronizzazione peer-to-peer non parte.
+  bool get lanPeerTransferConsented => _lanPeerTransferConsented;
+
+  bool get translationConsented => _translationConsented;
+
+  bool get voiceBioConsented => _voiceBioConsented;
+
+  /// Registra l'identita' dell'utente corrente. La password non viene salvata.
+  Future<void> saveUserSession(String phone, UserProfile profile) async {
     final preferences = _sharedPreferences ?? await SharedPreferences.getInstance();
     await preferences.setString(_sessionPhoneKey, phone);
-    await preferences.setString(_sessionPasswordKey, password);
     await preferences.setBool(_sessionIsGuestKey, false);
     await preferences.setString(_sessionProfileKey, jsonEncode(profile.toJson()));
     await preferences.remove(_sessionGuestNameKey);
+    _sharedPreferences = preferences;
     _currentUserProfile = profile;
     notifyListeners();
   }
@@ -51,8 +81,9 @@ class AppPreferences extends ChangeNotifier {
     await preferences.setBool(_sessionIsGuestKey, true);
     await preferences.setString(_sessionGuestNameKey, guestName);
     await preferences.setString(_sessionProfileKey, jsonEncode(profile.toJson()));
+    // Nessun numero di telefono per un ospite: l'identita' vive solo nel token.
     await preferences.remove(_sessionPhoneKey);
-    await preferences.remove(_sessionPasswordKey);
+    _sharedPreferences = preferences;
     _currentUserProfile = profile;
     notifyListeners();
   }
@@ -60,47 +91,65 @@ class AppPreferences extends ChangeNotifier {
   Future<void> saveUserProfile(UserProfile profile) async {
     final preferences = _sharedPreferences ?? await SharedPreferences.getInstance();
     await preferences.setString(_sessionProfileKey, jsonEncode(profile.toJson()));
+    _sharedPreferences = preferences;
     _currentUserProfile = profile;
     notifyListeners();
   }
 
+  /// Chiude la sessione locale.
+  ///
+  /// Rimuove anche le preferenze di consenso gia' memorizzate: leaving
+  /// l'app deve azzerare le scelte privacy, cosi' un account successivo non
+  /// eredita decisioni prese da un altro.
   Future<void> clearSession() async {
     final preferences = _sharedPreferences ?? await SharedPreferences.getInstance();
     await preferences.remove(_sessionPhoneKey);
-    await preferences.remove(_sessionPasswordKey);
     await preferences.remove(_sessionIsGuestKey);
     await preferences.remove(_sessionGuestNameKey);
     await preferences.remove(_sessionProfileKey);
+    _sharedPreferences = preferences;
     _currentUserProfile = null;
     notifyListeners();
   }
 
+  /// Elimina anche le preferenze di aspetto e consenso. Usato dalla
+  /// cancellazione dell'account, che deve lasciare il dispositivo pulito.
+  Future<void> clearAll() async {
+    final preferences = _sharedPreferences ?? await SharedPreferences.getInstance();
+    await preferences.clear();
+    _sharedPreferences = preferences;
+    _currentUserProfile = null;
+    _themeColorValue = defaultThemeColorValue;
+    _backgroundColorValue = defaultBackgroundColorValue;
+    _backgroundImagePath = null;
+    _preferredLanguageCode = defaultLanguageCode;
+    _lanPeerTransferConsented = false;
+    _translationConsented = false;
+    _voiceBioConsented = false;
+    notifyListeners();
+  }
+
+  /// Segnala la presenza di una sessione valida.
+  ///
+  /// Nota: non basta la presenza del profilo salvato. Il token vive in
+  /// `flutter_secure_storage` ed e' l'unica prova di una sessione valida; se il
+  /// server lo ha revocato, l'app deve tornare alla schermata di accesso.
   bool hasSession() {
     final prefs = _sharedPreferences;
     if (prefs == null) return false;
+    final profileJson = prefs.getString(_sessionProfileKey);
+    if (profileJson == null) return false;
     final isGuest = prefs.getBool(_sessionIsGuestKey) ?? false;
-    if (isGuest) {
-      return prefs.getString(_sessionGuestNameKey) != null;
-    } else {
-      return prefs.getString(_sessionPhoneKey) != null && prefs.getString(_sessionPasswordKey) != null;
-    }
+    return isGuest
+        ? prefs.getString(_sessionGuestNameKey) != null
+        : prefs.getString(_sessionPhoneKey) != null;
   }
 
-  bool isGuestSession() {
-    return _sharedPreferences?.getBool(_sessionIsGuestKey) ?? false;
-  }
+  bool isGuestSession() => _sharedPreferences?.getBool(_sessionIsGuestKey) ?? false;
 
-  String? getSavedPhone() {
-    return _sharedPreferences?.getString(_sessionPhoneKey);
-  }
+  String? getSavedPhone() => _sharedPreferences?.getString(_sessionPhoneKey);
 
-  String? getSavedPassword() {
-    return _sharedPreferences?.getString(_sessionPasswordKey);
-  }
-
-  String? getSavedGuestName() {
-    return _sharedPreferences?.getString(_sessionGuestNameKey);
-  }
+  String? getSavedGuestName() => _sharedPreferences?.getString(_sessionGuestNameKey);
 
   bool get isLoaded => _isLoaded;
   int get themeColorValue => _themeColorValue;
@@ -113,22 +162,27 @@ class AppPreferences extends ChangeNotifier {
     if (_isLoaded) {
       return;
     }
-    _sharedPreferences = await SharedPreferences.getInstance();
-    _themeColorValue =
-        _sharedPreferences!.getInt(_themeColorKey) ?? defaultThemeColorValue;
+    final preferences = await SharedPreferences.getInstance();
+    _sharedPreferences = preferences;
+    _themeColorValue = preferences.getInt(_themeColorKey) ?? defaultThemeColorValue;
     _backgroundColorValue =
-        _sharedPreferences!.getInt(_backgroundColorKey) ?? defaultBackgroundColorValue;
-    _backgroundImagePath = _sharedPreferences!.getString(_backgroundImagePathKey);
+        preferences.getInt(_backgroundColorKey) ?? defaultBackgroundColorValue;
+    _backgroundImagePath = preferences.getString(_backgroundImagePathKey);
     _preferredLanguageCode = _normalizeLanguageCode(
-        _sharedPreferences!.getString(_preferredLanguageKey) ??
-            PlatformDispatcher.instance.locale.languageCode,
+      preferences.getString(_preferredLanguageKey) ??
+          PlatformDispatcher.instance.locale.languageCode,
     );
+    _lanPeerTransferConsented = preferences.getBool(_lanPeerConsentKey) ?? false;
+    _translationConsented = preferences.getBool(_translationConsentKey) ?? false;
+    _voiceBioConsented = preferences.getBool(_voiceBioConsentKey) ?? false;
 
-    final profileJson = _sharedPreferences!.getString(_sessionProfileKey);
+    final profileJson = preferences.getString(_sessionProfileKey);
     if (profileJson != null) {
       try {
         _currentUserProfile = UserProfile.fromJson(jsonDecode(profileJson));
-      } catch (_) {}
+      } catch (_) {
+        // Profilo illeggibile (formato cambiato): si riparte senza sessione.
+      }
     }
 
     _isLoaded = true;
@@ -163,6 +217,29 @@ class AppPreferences extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Aggiorna in locale lo stato di un consenso. Il valore autorevole resta
+  /// quello del server: questa copia serve a non interrogare la rete a ogni
+  /// avvio e a rendere l'app utilizzabile anche offline.
+  Future<void> setConsent(String type, bool granted) async {
+    final preferences = _sharedPreferences ?? await SharedPreferences.getInstance();
+    _sharedPreferences = preferences;
+    switch (type) {
+      case 'lan_peer_transfer':
+        await preferences.setBool(_lanPeerConsentKey, granted);
+        _lanPeerTransferConsented = granted;
+        break;
+      case 'translation_ondevice':
+        await preferences.setBool(_translationConsentKey, granted);
+        _translationConsented = granted;
+        break;
+      case 'voice_bio':
+        await preferences.setBool(_voiceBioConsentKey, granted);
+        _voiceBioConsented = granted;
+        break;
+    }
+    notifyListeners();
+  }
+
   @visibleForTesting
   Future<void> resetForTests() async {
     _sharedPreferences = null;
@@ -171,6 +248,10 @@ class AppPreferences extends ChangeNotifier {
     _backgroundColorValue = defaultBackgroundColorValue;
     _backgroundImagePath = null;
     _preferredLanguageCode = defaultLanguageCode;
+    _currentUserProfile = null;
+    _lanPeerTransferConsented = false;
+    _translationConsented = false;
+    _voiceBioConsented = false;
   }
 
   String _normalizeLanguageCode(String rawLanguageCode) {

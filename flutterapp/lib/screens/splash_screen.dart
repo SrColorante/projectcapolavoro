@@ -346,9 +346,9 @@ class _SplashScreenState extends State<SplashScreen> with TickerProviderStateMix
         return;
       }
       try {
-        final profile = await AuthApi.guestLogin(name: guestName);
-        await prefs.saveGuestSession(guestName, profile);
-        _navigateTo(HomeScreen(profile: profile));
+        final session = await AuthApi.instance.guestLogin(name: guestName);
+        await prefs.saveGuestSession(guestName, session.profile);
+        _navigateTo(HomeScreen(profile: session.profile));
       } catch (_) {
         _navigateTo(const OnboardingWizardScreen());
       }
@@ -356,16 +356,21 @@ class _SplashScreenState extends State<SplashScreen> with TickerProviderStateMix
     }
 
     final phone = prefs.getSavedPhone();
-    final password = prefs.getSavedPassword();
 
-    if (phone == null || password == null) {
+    // Non esiste piu' una password salvata: se il token di sessione non e'
+    // piu' valido, l'utente deve autenticarsi di nuovo. Non si puo'
+    // "recuperare" la sessione in silenzio, perche' non c'e' piu' nulla da
+    // recuperare: e' il comportamento corretto dopo una disconnessione.
+    if (phone == null || !prefs.hasSession()) {
       _navigateTo(const OnboardingWizardScreen());
       return;
     }
 
     try {
-      final profile = await AuthApi.login(phone: phone, password: password);
-      await prefs.saveUserSession(phone, password, profile);
+      // La validita' della sessione la decide il server: si interroga e'
+      // l'endpoint dei propri dati. Se risponde, la sessione e' ancora buona.
+      final profile = await AuthApi.instance.fetchOwnProfile();
+      await prefs.saveUserSession(phone, profile);
       _navigateTo(HomeScreen(profile: profile));
     } catch (e) {
       final cachedProfile = prefs.currentUserProfile;

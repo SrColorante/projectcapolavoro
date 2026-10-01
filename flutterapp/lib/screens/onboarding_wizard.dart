@@ -3,9 +3,7 @@ import 'dart:io';
 import 'dart:math';
 import 'dart:ui';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:audioplayers/audioplayers.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../api/auth_api.dart';
@@ -15,7 +13,6 @@ import '../services/api_exception_handler.dart';
 import '../services/app_preferences.dart';
 import '../services/message_translation_service.dart';
 import 'home_screen.dart';
-import 'auth_screen.dart';
 import '../widgets/rich_color_board.dart';
 
 class OnboardingWizardScreen extends StatefulWidget {
@@ -32,7 +29,6 @@ class _OnboardingWizardScreenState extends State<OnboardingWizardScreen> with Ti
   late UserProfile _currentProfile;
 
   // Global Page/Step Transitions
-  double _transitionFraction = 0.0;
   Offset _transitionCenter = Offset.zero;
   bool _isTransitioningCircle = false;
   bool _isTransitioningStar = false;
@@ -61,7 +57,7 @@ class _OnboardingWizardScreenState extends State<OnboardingWizardScreen> with Ti
   // Settings / Theme customization (Step 5)
   Color _themeColor = const Color(0xFF1E1E1E);
   bool _isDarkMode = false;
-  double _fontSizeFactor = 1.0;
+  final double _fontSizeFactor = 1.0;
   bool _vibrationEnabled = true;
 
   // Tutorial Slides (Step 6)
@@ -209,15 +205,18 @@ class _OnboardingWizardScreenState extends State<OnboardingWizardScreen> with Ti
       final email = _emailController.text.trim().isEmpty ? null : _emailController.text.trim();
       final password = _passwordController.text.trim();
 
-      final profile = await AuthApi.register(
+      final session = await AuthApi.instance.register(
         name: name,
         phone: phone,
         email: email,
         password: password,
         preferredLanguageCode: _preferredLanguageCode,
       );
+      final profile = session.profile;
 
-      await AppPreferences.instance.saveUserSession(phone, password, profile);
+      // Nessuna password conservata: la sessione vive nel token salvato
+      // nell'archivio sicuro del dispositivo.
+      await AppPreferences.instance.saveUserSession(phone, profile);
 
       setState(() {
         _currentProfile = profile;
@@ -228,13 +227,11 @@ class _OnboardingWizardScreenState extends State<OnboardingWizardScreen> with Ti
       _transitionCenter = buttonOffset;
       setState(() {
         _isTransitioningCircle = true;
-        _transitionFraction = 0.0;
       });
 
       await _transitionController.forward();
       setState(() {
         _currentStep = 2; // Move to profile customization
-        _transitionFraction = 0.0;
         _isTransitioningCircle = false;
       });
       _transitionController.reset();
@@ -257,12 +254,13 @@ class _OnboardingWizardScreenState extends State<OnboardingWizardScreen> with Ti
       final phone = _phoneController.text.trim().replaceAll(' ', '');
       final password = _passwordController.text.trim();
 
-      final profile = await AuthApi.login(
+      final session = await AuthApi.instance.login(
         phone: phone,
         password: password,
       );
+      final profile = session.profile;
 
-      await AppPreferences.instance.saveUserSession(phone, password, profile);
+      await AppPreferences.instance.saveUserSession(phone, profile);
 
       setState(() {
         _currentProfile = profile;
@@ -274,7 +272,6 @@ class _OnboardingWizardScreenState extends State<OnboardingWizardScreen> with Ti
       _transitionCenter = buttonOffset;
       setState(() {
         _isTransitioningCircle = true;
-        _transitionFraction = 0.0;
       });
 
       await _transitionController.forward();
@@ -284,7 +281,6 @@ class _OnboardingWizardScreenState extends State<OnboardingWizardScreen> with Ti
         } else {
           _currentStep = 2; // Let them customize profile
         }
-        _transitionFraction = 0.0;
         _isTransitioningCircle = false;
       });
       _transitionController.reset();
@@ -312,13 +308,15 @@ class _OnboardingWizardScreenState extends State<OnboardingWizardScreen> with Ti
           userId: _currentProfile.id,
           filePath: _localPhotoPath!,
         );
-        photoUrl = attachmentData['source_url']?.toString();
+        // Il server assegna una chiave di archiviazione casuale: non viene
+        // piu' costruito alcun percorso a partire dal nome del file.
+        photoUrl = attachmentData['storage_key']?.toString();
       }
 
       final nickname = doLater ? _currentProfile.name : _nicknameController.text.trim();
       final bio = doLater ? '' : _bioController.text.trim();
 
-      final updatedProfile = await AuthApi.updateProfile(
+      final updatedProfile = await AuthApi.instance.updateProfile(
         userId: _currentProfile.id,
         nickname: nickname,
         preferredLanguageCode: _preferredLanguageCode,
@@ -373,7 +371,6 @@ class _OnboardingWizardScreenState extends State<OnboardingWizardScreen> with Ti
       // Play STAR WIPE transition
       setState(() {
         _isTransitioningStar = true;
-        _transitionFraction = 0.0;
       });
 
       _transitionController.duration = const Duration(milliseconds: 1200);
@@ -737,13 +734,15 @@ class _OnboardingWizardScreenState extends State<OnboardingWizardScreen> with Ti
               index: 2,
               child: _buildFormTextField(
                 controller: _phoneController,
-                label: 'Numero di telefono (8-15 cifre)',
+                label: 'Numero di telefono (10 cifre)',
                 icon: Icons.phone_rounded,
                 keyboardType: TextInputType.phone,
                 validator: (val) {
                   if (val == null || val.trim().isEmpty) return 'Inserisci il numero di telefono';
                   if (int.tryParse(val.trim()) == null) return 'Inserisci solo cifre';
-                  if (val.trim().length < 8 || val.trim().length > 15) return 'Il numero deve essere di 8-15 cifre';
+                  if (RegExp(r'^\d{10}$').hasMatch(val.trim().replaceAll(RegExp(r'[\s.]'), '')) == false) {
+                    return 'Il numero deve essere di 10 cifre';
+                  }
                   return null;
                 },
               ),

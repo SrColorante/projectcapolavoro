@@ -1,247 +1,254 @@
 <?php
-if (!$current_user_id) {
-    http_response_code(401);
-    echo json_encode(["error" => "Utente non autenticato"]);
-    exit;
-}
+/**
+ * resources/files.php — Caricamento e metadati dei file condivisi.
+ *
+ * Il file salvato su disco non ha piu' il nome originale: si chiama
+ * `<chiave casuale>.<estensione decisa dal server>`, dentro una sottocartella
+ * datata. Il nome originale resta solo come metadato e come intestazione della
+ * risposta di download.
+ */
 
-const DEFAULT_FILE_LIMIT_BYTES = 52428800;
-const UPLOAD_DIR = __DIR__ . '/../uploads/';
+declare(strict_types=1);
 
-function resolve_preview_type(string $mime_type, string $file_name, ?string $source_url): string {
-    $normalized_mime = strtolower(trim($mime_type));
-    $normalized_name = strtolower(trim($file_name));
+require_once __DIR__ . '/../lib/upload.php';
+require_once __DIR__ . '/../lib/retention.php';
 
-    if ($source_url !== null && preg_match('/^https?:\/\//i', $source_url) === 1) {
+require_authentication();
+
+$method = Http::method();
+
+/** Classifica il tipo di anteprima a partire da MIME reale ed estensione. */
+function resolve_preview_type(string $mimeType, string $fileName, ?string $sourceUrl): string
+{
+    $mime = strtolower(trim($mimeType));
+    $name = strtolower(trim($fileName));
+
+    if ($sourceUrl !== null && preg_match('#^https?://#i', $sourceUrl) === 1) {
         return 'link';
     }
-    if (str_starts_with($normalized_mime, 'audio/')) {
+    if (str_starts_with($mime, 'audio/')) {
         return 'audio';
     }
-    if ($normalized_mime === 'application/pdf' || str_ends_with($normalized_name, '.pdf')) {
+    if ($mime === 'application/pdf' || str_ends_with($name, '.pdf')) {
         return 'pdf';
     }
-    if ($normalized_mime === 'image/gif' || str_ends_with($normalized_name, '.gif')) {
+    if ($mime === 'image/gif' || str_ends_with($name, '.gif')) {
         return 'gif';
     }
-    if (
-        str_starts_with($normalized_mime, 'image/') ||
-        str_ends_with($normalized_name, '.png') ||
-        str_ends_with($normalized_name, '.jpg') ||
-        str_ends_with($normalized_name, '.jpeg') ||
-        str_ends_with($normalized_name, '.webp') ||
-        str_ends_with($normalized_name, '.heic') ||
-        str_ends_with($normalized_name, '.bmp')
-    ) {
+    if (str_starts_with($mime, 'image/')) {
         return 'image';
     }
-    if (str_starts_with($normalized_mime, 'video/')) {
+    if (str_starts_with($mime, 'video/')) {
         return 'video';
     }
     return 'file';
 }
 
 function build_preview_payload(
-    string $preview_type,
-    string $file_name,
-    string $mime_type,
-    ?string $source_url
+    string $previewType,
+    string $fileName,
+    string $mimeType,
+    ?string $storageKey
 ): array {
     $payload = [
-        "title" => $file_name,
-        "mime_type" => $mime_type
+        'title' => $fileName,
+        'mime_type' => $mimeType,
     ];
-
-    if ($source_url !== null) {
-        $payload["url"] = $source_url;
-        if ($preview_type === 'link') {
-            $host = parse_url($source_url, PHP_URL_HOST);
-            $payload["host"] = $host;
-        }
+    if ($storageKey !== null) {
+        $payload['storage_key'] = $storageKey;
     }
-
+    if ($previewType === 'link') {
+        $payload['host'] = parse_url($storageKey ?? '', PHP_URL_HOST);
+    }
     return $payload;
 }
 
-$method = $_SERVER['REQUEST_METHOD'];
+/** Serializza una riga di shared_files per il client. */
+function serialize_file_row(array $row): array
+{
+    return [
+        'id' => strval($row['id']),
+        'file_name' => $row['file_name'],
+        'mime_type' => $row['mime_type'],
+        'size_bytes' => intval($row['size_bytes']),
+        'preview_type' => $row['preview_type'],
+        'preview_payload' => json_decode(strval($row['preview_payload'] ?? '{}'), true),
+        'bypassed_limit' => boolval($row['bypassed_limit']),
+        'created_at' => $row['created_at'],
+        'message_id' => $row['message_id'] === null ? null : strval($row['message_id']),
+        'deleted' => $row['deleted_at'] !== null,
+        'download_url' => $row['deleted_at'] === null
+            ? '/serve_file.php?file=' . rawurlencode(strval($row['storage_key'] ?? ''))
+            : null,
+    ];
+}
+
 if ($method === 'POST') {
-    // Se c'è un file upload multipart ($_FILES), gestiscilo direttamente
-    if (!empty($_FILES['file'])) {
+    require_processing_allowed();
+
+    $hasBinary = !empty($_FILES['file']);
+
+    if ($hasBinary) {
         $uploaded = $_FILES['file'];
         if ($uploaded['error'] !== UPLOAD_ERR_OK) {
-            http_response_code(400);
-            echo json_encode(["error" => "Errore upload file", "code" => $uploaded['error']]);
-            exit;
+            $messages = [
+                UPLOAD_ERR_INI_SIZE   => 'Il file supera il limite del server.',
+                UPLOAD_ERR_FORM_SIZE  => 'Il file supera il limite consentito.',
+                UPLOAD_ERR_PARTIAL    => 'Caricamento incompleto, riprova.',
+                UPLOAD_ERR_NO_FILE    => 'Nessun file ricevuto.',
+            ];
+            Http::error(
+                $messages[$uploaded['error']] ?? 'Errore durante il caricamento del file',
+                400
+            );
         }
 
-        $file_name = basename($uploaded['name']);
-        $mime_type = $uploaded['type'] ?: 'application/octet-stream';
-        $size_bytes = $uploaded['size'];
-        $message_id = isset($input['message_id']) ? intval($input['message_id']) : null;
-
-        $admin_password = strval($input['admin_password'] ?? '');
-        $override_limit = boolval($input['override_limit'] ?? false);
-
-        $limit_bypassed = false;
-        if ($size_bytes > DEFAULT_FILE_LIMIT_BYTES) {
-            $expected_admin_password = getenv('CRIMSON_CHAT_ADMIN_BYPASS_PASSWORD');
-            if ($expected_admin_password === false || $expected_admin_password === '') {
-                $expected_admin_password = 'SEGRETO_DA_RUOTARE';
-            }
-            $has_bypass = $override_limit && $admin_password !== '' && hash_equals($expected_admin_password, $admin_password);
-            if (!$has_bypass) {
-                http_response_code(403);
-                echo json_encode([
-                    "error" => "File oltre 50MB: inserire password admin per il bypass",
-                    "max_size_bytes" => DEFAULT_FILE_LIMIT_BYTES
-                ]);
-                exit;
-            }
-            $limit_bypassed = true;
+        $retry = Http::rateLimit('upload:' . $current_user_id, 30, 300);
+        if ($retry > 0) {
+            Http::retryAfter($retry);
+            Http::error('Troppi caricamenti in breve tempo.', 429);
         }
 
-        // Salva il file su disco
-        if (!is_dir(UPLOAD_DIR)) {
-            mkdir(UPLOAD_DIR, 0755, true);
-        }
-        $ext = pathinfo($file_name, PATHINFO_EXTENSION);
-        $safe_name = uniqid('file_') . '_' . preg_replace('/[^a-zA-Z0-9_.-]/', '_', $file_name);
-        $dest_path = UPLOAD_DIR . $safe_name;
-
-        if (!move_uploaded_file($uploaded['tmp_name'], $dest_path)) {
-            http_response_code(500);
-            echo json_encode(["error" => "Impossibile salvare il file"]);
-            exit;
-        }
-
-        // Costruisci URL pubblico relativo — path pulito per serve_file
-        $source_url = '/uploads/' . $safe_name;
-
-        $preview_type = resolve_preview_type($mime_type, $file_name, null);
-        $preview_payload = build_preview_payload($preview_type, $file_name, $mime_type, $source_url);
-        $preview_json = json_encode($preview_payload, JSON_UNESCAPED_SLASHES);
-
-        $stmt = $pdo->prepare("INSERT INTO shared_files (
-                                    owner_user_id, file_name, mime_type, size_bytes, source_url,
-                                    preview_type, preview_payload, message_id, bypassed_limit
-                               ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
-        $stmt->execute([
-            $current_user_id,
-            $file_name,
-            $mime_type,
-            $size_bytes,
-            $source_url,
-            $preview_type,
-            $preview_json,
-            $message_id,
-            $limit_bypassed ? 1 : 0
-        ]);
-
-        $new_id = $pdo->lastInsertId();
-        echo json_encode([
-            "success" => true,
-            "data" => [
-                "id" => strval($new_id),
-                "file_name" => $file_name,
-                "mime_type" => $mime_type,
-                "size_bytes" => $size_bytes,
-                "source_url" => $source_url,
-                "limit_bypassed" => $limit_bypassed,
-                "preview_type" => $preview_type,
-                "preview_payload" => $preview_payload,
-                "message_id" => $message_id
-            ]
-        ]);
-        exit;
-    }
-
-    // Altrimenti: gestione metadata-only (senza upload binario)
-    $file_name = trim($input['file_name'] ?? '');
-    $mime_type = trim($input['mime_type'] ?? 'application/octet-stream');
-    $size_bytes = intval($input['size_bytes'] ?? 0);
-    $source_url = trim($input['source_url'] ?? '');
-    $message_id = isset($input['message_id']) ? intval($input['message_id']) : null;
-    $admin_password = strval($input['admin_password'] ?? '');
-    $override_limit = boolval($input['override_limit'] ?? false);
-
-    if ($file_name === '' || $size_bytes <= 0) {
-        http_response_code(400);
-        echo json_encode(["error" => "Specificare file_name e size_bytes > 0"]);
-        exit;
-    }
-
-    $limit_bypassed = false;
-    if ($size_bytes > DEFAULT_FILE_LIMIT_BYTES) {
-        $expected_admin_password = getenv('CRIMSON_CHAT_ADMIN_BYPASS_PASSWORD');
-        if ($expected_admin_password === false || $expected_admin_password === '') {
-            $expected_admin_password = 'SEGRETO_DA_RUOTARE';
-        }
-        $has_bypass = $override_limit && $admin_password !== '' && hash_equals($expected_admin_password, $admin_password);
-        if (!$has_bypass) {
-            http_response_code(403);
-            echo json_encode([
-                "error" => "File oltre 50MB: inserire password admin per il bypass",
-                "max_size_bytes" => DEFAULT_FILE_LIMIT_BYTES
+        try {
+            $validated = Upload::validateReceivedFile($uploaded);
+            $storageKey = Upload::storeReceivedFile($uploaded, $validated);
+        } catch (RuntimeException $e) {
+            Logger::audit('file.rejected', $current_user_id, 'shared_files', null, 'denied', [
+                'reason' => $e->getMessage(),
             ]);
-            exit;
+            Http::error($e->getMessage(), 400);
         }
-        $limit_bypassed = true;
+
+        $messageId = isset($input['message_id']) ? intval($input['message_id']) : null;
+        $previewType = resolve_preview_type(
+            $validated['mime_type'],
+            $validated['original_name'],
+            null
+        );
+        $previewPayload = build_preview_payload(
+            $previewType,
+            $validated['original_name'],
+            $validated['mime_type'],
+            $storageKey
+        );
+
+        Db::execute(
+            'INSERT INTO shared_files (owner_user_id, file_name, mime_type, size_bytes,
+                                       storage_key, preview_type, preview_payload,
+                                       message_id, bypassed_limit)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)',
+            [
+                $current_user_id,
+                $validated['original_name'],
+                $validated['mime_type'],
+                $validated['size_bytes'],
+                $storageKey,
+                $previewType,
+                json_encode($previewPayload, JSON_UNESCAPED_SLASHES),
+                $messageId,
+            ]
+        );
+
+        $fileId = Db::lastInsertId();
+        Retention::stampFiles([intval($fileId)]);
+
+        Logger::audit('file.uploaded', $current_user_id, 'shared_files', $fileId, 'ok', [
+            'mime_type' => $validated['mime_type'],
+            'size_bytes' => $validated['size_bytes'],
+        ]);
+
+        $row = Db::fetchOne('SELECT * FROM shared_files WHERE id = ?', [intval($fileId)]);
+        Http::success(serialize_file_row($row ?? []));
+        exit;
     }
 
-    $normalized_source = $source_url === '' ? null : $source_url;
-    $preview_type = resolve_preview_type($mime_type, $file_name, $normalized_source);
-    $preview_payload = build_preview_payload($preview_type, $file_name, $mime_type, $normalized_source);
-    $preview_json = json_encode($preview_payload, JSON_UNESCAPED_SLASHES);
+    // Metadati senza binario: solo riferimenti esterni (link).
+    $fileName = trim(strval($input['file_name'] ?? ''));
+    $mimeType = trim(strval($input['mime_type'] ?? 'application/octet-stream'));
+    $sizeBytes = intval($input['size_bytes'] ?? 0);
+    $sourceUrl = trim(strval($input['source_url'] ?? ''));
+    $messageId = isset($input['message_id']) ? intval($input['message_id']) : null;
 
-    $stmt = $pdo->prepare("INSERT INTO shared_files (
-                                owner_user_id, file_name, mime_type, size_bytes, source_url,
-                                preview_type, preview_payload, message_id, bypassed_limit
-                           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
-    $stmt->execute([
-        $current_user_id,
-        $file_name,
-        $mime_type,
-        $size_bytes,
-        $normalized_source,
-        $preview_type,
-        $preview_json,
-        $message_id,
-        $limit_bypassed ? 1 : 0
-    ]);
+    if ($fileName === '' || $sizeBytes <= 0) {
+        Http::error('Specificare file_name e size_bytes > 0', 400);
+    }
 
-    echo json_encode([
-        "success" => true,
-        "data" => [
-            "id" => strval($pdo->lastInsertId()),
-            "file_name" => $file_name,
-            "mime_type" => $mime_type,
-            "size_bytes" => $size_bytes,
-            "limit_bypassed" => $limit_bypassed,
-            "preview_type" => $preview_type,
-            "preview_payload" => $preview_payload
+    // Un riferimento esterno non porta dati dentro il nostro sistema: si
+    // conserva solo l'URL. La validazione del contenuto non e' applicabile.
+    $previewType = resolve_preview_type($mimeType, $fileName, $sourceUrl === '' ? null : $sourceUrl);
+    $previewPayload = build_preview_payload(
+        $previewType,
+        Upload::sanitizeDisplayName($fileName),
+        $mimeType,
+        $sourceUrl === '' ? null : $sourceUrl
+    );
+
+    Db::execute(
+        'INSERT INTO shared_files (owner_user_id, file_name, mime_type, size_bytes,
+                                   source_url, preview_type, preview_payload,
+                                   message_id, bypassed_limit)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)',
+        [
+            $current_user_id,
+            Upload::sanitizeDisplayName($fileName),
+            $mimeType,
+            $sizeBytes,
+            $sourceUrl === '' ? null : $sourceUrl,
+            $previewType,
+            json_encode($previewPayload, JSON_UNESCAPED_SLASHES),
+            $messageId,
         ]
-    ]);
-    exit;
+    );
+
+    $fileId = Db::lastInsertId();
+    Retention::stampFiles([intval($fileId)]);
+    $row = Db::fetchOne('SELECT * FROM shared_files WHERE id = ?', [intval($fileId)]);
+    Http::success(serialize_file_row($row ?? []));
 }
 
 if ($method === 'GET') {
-    $stmt = $pdo->prepare("SELECT id, file_name, mime_type, size_bytes, source_url, preview_type, preview_payload, bypassed_limit, created_at, message_id
-                           FROM shared_files
-                           WHERE owner_user_id = ?
-                           ORDER BY created_at DESC");
-    $stmt->execute([$current_user_id]);
-    $rows = $stmt->fetchAll();
-    $files = array_map(function ($row) {
-        $row['id'] = strval($row['id']);
-        $row['size_bytes'] = intval($row['size_bytes']);
-        $row['bypassed_limit'] = boolval($row['bypassed_limit']);
-        $row['message_id'] = isset($row['message_id']) ? strval($row['message_id']) : null;
-        $row['preview_payload'] = json_decode($row['preview_payload'] ?? '{}', true);
-        return $row;
-    }, $rows);
-    echo json_encode(["success" => true, "data" => $files]);
-    exit;
+    $rows = Db::fetchAll(
+        'SELECT * FROM shared_files
+         WHERE owner_user_id = ?
+         ORDER BY created_at DESC
+         LIMIT 200',
+        [$current_user_id]
+    );
+    Http::success(array_map('serialize_file_row', $rows));
 }
 
-http_response_code(405);
-echo json_encode(["error" => "Metodo non consentito"]);
+if ($method === 'DELETE') {
+    $fileId = Http::query('file_id');
+    if ($fileId === null || !ctype_digit($fileId)) {
+        Http::error('file_id non valido', 400);
+    }
+
+    $row = Db::fetchOne(
+        'SELECT id, storage_key, source_url, owner_user_id, deleted_at FROM shared_files WHERE id = ?',
+        [intval($fileId)]
+    );
+    if ($row === null) {
+        Http::error('File non trovato', 404);
+    }
+    if (strval($row['owner_user_id']) !== $current_user_id) {
+        Http::error('Puoi eliminare solo i tuoi file', 403);
+    }
+    if ($row['deleted_at'] !== null) {
+        Http::error('File gia\' eliminato', 409);
+    }
+
+    $retentionDays = Config::retentionDays('shared_files');
+    Db::execute(
+        'UPDATE shared_files SET deleted_at = UTC_TIMESTAMP(), purge_after = ? WHERE id = ?',
+        [gmdate('Y-m-d H:i:s', time() + $retentionDays * 86400), intval($fileId)]
+    );
+
+    Logger::audit('file.deleted', $current_user_id, 'shared_files', $fileId, 'ok');
+    Http::success([
+        'deleted' => true,
+        'file_id' => $fileId,
+        'purged_at' => gmdate('c', time() + $retentionDays * 86400),
+    ]);
+}
+
+Http::error('Metodo non consentito', 405);
