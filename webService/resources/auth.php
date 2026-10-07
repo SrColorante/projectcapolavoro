@@ -16,7 +16,9 @@ $profile_photo_url = trim($input['profile_photo_url'] ?? '');
 $profile_audio_url = trim($input['profile_audio_url'] ?? '');
 $audio_duration = floatval($input['profile_audio_duration_seconds'] ?? 0);
 $e2ee_public_key = trim($input['e2ee_public_key'] ?? '');
-$two_factor_enabled = ($input['two_factor_enabled'] ?? false) ? 1 : 0;
+// Era `? 1 : 0` perche' la colonna era TINYINT(1) di MySQL; in PostgreSQL
+// `two_factor_enabled` e' BOOLEAN.
+$two_factor_enabled = ($input['two_factor_enabled'] ?? false) ? true : false;
 $two_factor_channel = trim($input['two_factor_channel'] ?? '');
 $two_factor_destination = trim($input['two_factor_destination'] ?? '');
 
@@ -39,10 +41,18 @@ function generate_unique_user_id(PDO $pdo): string {
 
 function build_profile(array $user): array {
     return [
-        "id" => strval($user['IDutente']),
+        // Il client si aspetta ancora un `id` numerico, e con quello cerca
+        // gli amici e le chat: mandare l'email qui romperebbe le schermate
+        // gia' scritte. Resta `IDutente`, che e' UNIQUE e non e' piu' la PK.
+        "id" => strval($user['idutente'] ?? $user['IDutente'] ?? ''),
         "name" => $user['nome'],
         "nickname" => $user['nickname'],
-        "email" => $user['email'],
+        // `real_email` e l'indirizzo che la persona ha dato. `site_email` e'
+        // la chiave del database e va in un campo a parte, altrimenti il
+        // client finisce per mostrare l'indirizzo di dominio a chi si e'
+        // registrato col telefono.
+        "email" => $user['real_email'] ?? null,
+        "site_email" => $user['site_email'] ?? null,
         "is_guest" => boolval($user['is_guest'] ?? false),
         "preferred_language" => strval($user['preferred_language'] ?? 'en'),
         "profile_bio" => $user['profile_bio'] ?? null,
@@ -82,6 +92,27 @@ $normalized_2fa_channel = in_array($two_factor_channel, ['email', 'phone'], true
     : null;
 $normalized_2fa_destination = nullable_profile_value($two_factor_destination);
 
+/**
+ * Indirizzo di dominio con cui entrare nel database condiviso.
+ *
+ * La PK di `utenti` e' `site_email`, quindi ogni riga ne ha bisogno. Quique
+ * chiede il telefono, non l'email: quando il client non manda un indirizzo di
+ * dominio se ne deriva uno dal telefono. Il CHECK `chk_utenti_site_email_domain`
+ * accetta '@cristianrenosto.party', e questa funzione non puo' produrre altro.
+ *
+ * Nota sul dominio: `cristianrenosto.party` ha una regola Cloudflare
+ * Email Routing con catch-all su `drop`, quindi un indirizzo derivato qui non
+ * riceve posta. Va bene perche' `real_email` resta l'unico canale per le
+ * notifiche.
+ */
+function resolve_site_email(string $email, string $phone): string {
+    $trimmed = strtolower(trim($email));
+    if ($trimmed !== '' && str_ends_with($trimmed, '@cristianrenosto.party')) {
+        return $trimmed;
+    }
+    return $phone . '@cristianrenosto.party';
+}
+
 if ($normalized_audio !== null && ($audio_duration <= 0 || $audio_duration > 5.0)) {
     http_response_code(400);
     echo json_encode(["error" => "La descrizione audio deve durare tra 0 e 5 secondi"]);
@@ -95,15 +126,16 @@ if ($action === 'guest_login') {
     $password_hash = password_hash(bin2hex(random_bytes(12)), PASSWORD_BCRYPT);
 
     $stmt = $pdo->prepare("INSERT INTO utenti (
-                                IDutente, nome, cognome, nickname, email, password_hash, dataCreazione,
+                                site_email, real_email, IDutente, nome, cognome, nickname, password_hash, dataCreazione,
                                 is_guest, preferred_language, e2ee_public_key
-                           ) VALUES (?, ?, ?, ?, ?, ?, CURDATE(), 1, ?, ?)");
+                           ) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_DATE, TRUE, ?, ?)");
     $stmt->execute([
+        $guest_email,
+        $guest_email,
         $guest_id,
         $guest_name,
         'Utente',
         $guest_name,
-        $guest_email,
         $password_hash,
         $normalized_language,
         $normalized_e2ee_public_key
@@ -157,7 +189,21 @@ if ($action === 'register') {
         exit;
     }
 
-    // Check if phone number is already registered (since IDutente is the phone number)
+    $site_email = resolve_site_email($email, $phone);
+
+    // La PK e' `site_email`: se e' gia' preso l'account esiste. Il messaggio
+    // e' generico per non confermare quale indirizzo e' registrato.
+    $stmt = $pdo->prepare("SELECT 1 FROM utenti WHERE site_email = ?");
+    $stmt->execute([$site_email]);
+    if ($stmt->fetchColumn()) {
+        http_response_code(409);
+        echo json_encode(["error" => "Account già registrato"]);
+        exit;
+    }
+
+    // Il telefono resta UNIQUE e viene ancora verificato: due account con lo
+    // stesso numero sarebbero la stessa persona due volte, e il login lo cerca
+    // con `WHERE IDutente = ?`.
     $stmt = $pdo->prepare("SELECT 1 FROM utenti WHERE IDutente = ?");
     $stmt->execute([$phone]);
     if ($stmt->fetchColumn()) {
@@ -166,33 +212,28 @@ if ($action === 'register') {
         exit;
     }
 
-    // If optional email is provided, check if it's already registered
-    if ($email !== '') {
-        $stmt = $pdo->prepare("SELECT 1 FROM utenti WHERE email = ?");
-        $stmt->execute([$email]);
-        if ($stmt->fetchColumn()) {
-            http_response_code(409);
-            echo json_encode(["error" => "Email già registrata"]);
-            exit;
-        }
-    }
-
     $normalized_name = $name === '' ? 'Nuovo utente' : $name;
     $password_hash = password_hash($password, PASSWORD_BCRYPT);
 
     $stmt = $pdo->prepare("INSERT INTO utenti (
-                                IDutente, nome, cognome, nickname, email, password_hash, dataCreazione,
+                                site_email, real_email, IDutente, nome, cognome, nickname, password_hash, dataCreazione,
                                 preferred_language, profile_bio, profile_photo_url, profile_audio_url,
                                 profile_audio_duration_seconds, e2ee_public_key, two_factor_enabled,
                                 two_factor_channel, two_factor_destination
                            )
-                           VALUES (?, ?, ?, ?, ?, ?, CURDATE(), ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                           VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_DATE, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
     $stmt->execute([
+        // `site_email` e la PK: se il client manda un indirizzo di dominio
+        // si usa quello, altrimenti se ne deriva uno dal telefono. Il dominio
+        // e' applicato dal CHECK della tabella, quindi qui basta costruirlo
+        // bene: far fallire la registrazione perche' l'utente non ha ancora
+        // una casella del sito sarebbe un motivo per non registrarsi.
+        $site_email,
+        $email === '' ? $site_email : $email,
         $phone,
         $normalized_name,
         'Utente',
         $normalized_name,
-        $email === '' ? null : $email,
         $password_hash,
         $normalized_language,
         $normalized_bio,
@@ -200,7 +241,11 @@ if ($action === 'register') {
         $normalized_audio,
         $normalized_audio === null ? null : $audio_duration,
         $normalized_e2ee_public_key,
-        $two_factor_enabled,
+        // `false` diventerebbe la stringa vuota, che pdo_pgsql rifiuta su una
+        // colonna BOOLEAN: vedi resources/bool.php. Senza questo, la
+        // registrazione di chi non attiva il 2FA fallirebbe — cioe' quasi
+        // tutti.
+        sql_bool($two_factor_enabled),
         $normalized_2fa_channel,
         $normalized_2fa_destination
     ]);
@@ -234,7 +279,7 @@ if ($action === 'enable_2fa') {
     }
 
     $stmt = $pdo->prepare("UPDATE utenti
-                           SET two_factor_enabled = 1,
+                           SET two_factor_enabled = TRUE,
                                two_factor_channel = ?,
                                two_factor_destination = ?
                            WHERE IDutente = ?");
@@ -246,8 +291,8 @@ if ($action === 'enable_2fa') {
 if ($action === 'certify_pec') {
     authenticate_user_or_fail($pdo, $phone, $password);
     $stmt = $pdo->prepare("UPDATE utenti
-                           SET pec_certified_at = NOW()
-                           WHERE IDutente = ? AND two_factor_enabled = 1");
+                           SET pec_certified_at = CURRENT_TIMESTAMP
+                           WHERE IDutente = ? AND two_factor_enabled = TRUE");
     $stmt->execute([$phone]);
     if ($stmt->rowCount() === 0) {
         http_response_code(400);

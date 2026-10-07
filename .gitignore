@@ -1,0 +1,37 @@
+# Artefatti di build Flutter/Dart. Sono output del compilatore, non sorgente:
+# rigenerati da `flutter pub get` + `flutter build`, e pesanti.
+build/
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+
+# Dipendenze installate dal package manager.
+node_modules/
+.pubspec.lock_tmp/
+
+# Segreti. webService/.gitignore esclude gia' .env*, qui si copre il resto
+# del repository. Vale la pena ripeterlo: un .env committato con ipermessi
+# 644 finisce sincronizzato su Drive, ed e' esattamente cio' che e' successo
+# il 6 ottobre 2026.
+.env
+.env.*
+!.env.example
+
+# Log e file temporanei.
+*.log
+*.pid
+*.bak
+*.orig
+
+# Credenziali e materiale di sessione.
+*.jks
+*.keystore
+*.pem
+uploads/
+webService/uploads/
+
+# Sistema operativo e editor.
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

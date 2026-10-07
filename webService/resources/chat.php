@@ -65,8 +65,8 @@ if ($method === 'GET') {
         $stmtTyping = $pdo->prepare("
             SELECT ts.user_id, ts.status, u.nickname, u.nome
             FROM chat_typing_status ts
-            JOIN utenti u ON ts.user_id = u.IDutente
-            WHERE ts.chat_id = ? AND ts.status != 'idle' AND ts.updated_at >= NOW() - INTERVAL 6 SECOND AND ts.user_id != ?
+            JOIN utenti u ON ts.user_id = u.site_email
+            WHERE ts.chat_id = ? AND ts.status != 'idle' AND ts.updated_at >= CURRENT_TIMESTAMP - INTERVAL '6 seconds' AND ts.user_id != ?
         ");
         $stmtTyping->execute([$chat_id, $current_user_id]);
         $typing = $stmtTyping->fetchAll();
@@ -125,8 +125,9 @@ if ($method === 'GET') {
         try {
             $stmt = $pdo->prepare("
                 INSERT INTO chat_typing_status (chat_id, user_id, status, updated_at)
-                VALUES (?, ?, ?, NOW())
-                ON DUPLICATE KEY UPDATE status = VALUES(status), updated_at = NOW()
+                VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT (chat_id, user_id)
+                DO UPDATE SET status = EXCLUDED.status, updated_at = CURRENT_TIMESTAMP
             ");
             $stmt->execute([$chat_id, $current_user_id, $status]);
             echo json_encode(["success" => true, "message" => "Status aggiornato"]);
@@ -141,7 +142,10 @@ if ($method === 'GET') {
     $text = $input['textmessage'] ?? '';
     $encrypted_payload = $input['encrypted_payload'] ?? null;
     $message_signature = trim($input['message_signature'] ?? '');
-    $is_certified = ($input['is_certified'] ?? false) ? 1 : 0;
+    // Era `? 1 : 0` perche' la colonna era TINYINT(1) di MySQL. In PostgreSQL
+// `is_certified` e' un BOOLEAN e `''` non e' un valore valido: il bind di un
+// intero attraverso PDO arriva come stringa e il driver rifiuta l'inserimento.
+$is_certified = ($input['is_certified'] ?? false) ? true : false;
     $receiver_id = isset($input['reciverID']) ? str_replace(' ', '', trim(strval($input['reciverID']))) : null;
     $chat_id = $input['chat_id'] ?? null;
     $file_attachment_id = $input['file_attachment_id'] ?? null;
@@ -213,7 +217,9 @@ if ($method === 'GET') {
         $receiver_id,
         $chat_id,
         $file_attachment_id,
-        $is_certified,
+        // `false` passato qui diventerebbe la stringa vuota, che
+        // pdo_pgsql rifiuta: vedi resources/bool.php.
+        sql_bool($is_certified),
         $message_signature === '' ? null : $message_signature,
         $e2ee_metadata
     ]);

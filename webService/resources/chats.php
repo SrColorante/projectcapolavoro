@@ -48,7 +48,7 @@ if ($method === 'GET') {
             $stmt2 = $pdo->prepare("
                 SELECT u.IDutente, u.nome, u.nickname, u.profile_photo_url, cm.role
                 FROM chat_members cm
-                JOIN utenti u ON cm.user_id = u.IDutente
+                JOIN utenti u ON cm.user_id = u.site_email
                 WHERE cm.chat_id = ?
             ");
             $stmt2->execute([$chat['IDchat']]);
@@ -94,6 +94,10 @@ if ($method === 'GET') {
     echo json_encode(["success" => true, "data" => $chats]);
 
 } elseif ($method === 'POST') {
+    // `is_group` e' una colonna BOOLEAN. La variabile resta numerica perche'
+    // sotto viene confrontata con `=== 1`, ma il valore passato al database
+    // deve essere `TRUE`/`FALSE`: `1` su una colonna boolean e' un errore di
+    // tipo che fallisce a runtime, non in scrittura. Vedi resources/bool.php.
     $is_group = ($input['is_group'] ?? false) ? 1 : 0;
 
     if ($is_group === 1) {
@@ -115,7 +119,9 @@ if ($method === 'GET') {
         }
 
         $chat_id = generate_ten_digit_id();
-        $stmt = $pdo->prepare("INSERT INTO chat (IDchat, is_group, name, created_by, utente1, utente2) VALUES (?, 1, ?, ?, NULL, NULL)");
+        // `is_group` e' BOOLEAN: il letterale va scritto TRUE, non 1, altrimenti
+        // pdo_pgsql lo legge come la stringa "1" e rifiuta l'inserimento.
+        $stmt = $pdo->prepare("INSERT INTO chat (IDchat, is_group, name, created_by, utente1, utente2) VALUES (?, TRUE, ?, ?, NULL, NULL)");
         $stmt->execute([$chat_id, $name, $current_user_id]);
 
         // Inserisci il creatore come admin
