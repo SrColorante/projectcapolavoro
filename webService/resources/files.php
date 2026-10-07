@@ -134,7 +134,11 @@ if ($method === 'POST') {
             $preview_type,
             $preview_json,
             $message_id,
-            $limit_bypassed ? 1 : 0
+            // Come per gli altri booleani: `false` passato qui diventerebbe la
+            // stringa vuota e pdo_pgsql lo rifiuterebbe, quindi il caricamento di
+            // un file che non aggira il limite — cioe' quello normale — fallirebbe.
+            // Vedi resources/bool.php.
+            sql_bool($limit_bypassed)
         ]);
 
         $new_id = $pdo->lastInsertId();
@@ -206,7 +210,7 @@ if ($method === 'POST') {
         $preview_type,
         $preview_json,
         $message_id,
-        $limit_bypassed ? 1 : 0
+        sql_bool($limit_bypassed)
     ]);
 
     echo json_encode([

@@ -28,6 +28,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 }
 
 require_once 'db.php';
+require_once 'resources/bool.php';
 
 function is_ten_digit_id($value): bool {
     return is_string($value) && preg_match('/^\d{10}$/', $value) === 1;
